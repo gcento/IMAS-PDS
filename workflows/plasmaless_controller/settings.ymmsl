@@ -30,6 +30,18 @@ settings:
   # (local_installs/plasmaless-tokamak-circuits, or PLASMALESS_REPO if set; see the
   # plasmaless program in lib/local_programs.ymmsl).
   # Set plasmaless.md_uri to use another entry.
+  # Optional actor settings (defaults are the actor's own; neither is set here):
+  # - plasmaless.linear_model_dir (default empty): absolute path of a directory holding
+  #   an external linear model (linear_model.json descriptor + A, B, C matrix files; see
+  #   the plasmaless repository README, section "External linear model"). Empty or
+  #   absent = the plasma-free coil+vessel circuit model built from the machine
+  #   description (the default, used by plasmaless_controller_105084). A linear model is
+  #   specific to one pulse and one time, so it is set per shot in
+  #   cases/overrides/plasmaless_controller_<shot>.ymmsl (example:
+  #   plasmaless_controller_105073.ymmsl, NICE linearisation of 105073 at 84.4176 s).
+  # - plasmaless.operating_point (default descriptor; only with a linear model):
+  #   descriptor = absolute coil currents, Ip and magnetic axis start at the model's
+  #   linearisation point; f_init = start from the F_INIT scenario values at t0.
 
   # Output. `../../../` climbs out of the instance's own work directory, so the entries
   # land next to the run's logs in <run_dir>/ rather than under instances/.
