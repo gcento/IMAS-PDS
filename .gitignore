@@ -31,3 +31,7 @@ cases/*/
 !*.template
 
 .claude
+
+slurm*
+
+*.asv

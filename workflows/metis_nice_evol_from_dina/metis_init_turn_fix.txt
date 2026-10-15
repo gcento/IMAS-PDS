@@ -1,0 +1,55 @@
+METIS fix needed by this workflow: no O_I send on the initialisation turn
+=========================================================================
+
+PROBLEM
+On its initialisation turn the in-loop `metis` sends its initial state on its O_I ports.
+In this workflow `metis_init` already gives that state to NICE, so NICE gets one message too
+many and then reads every METIS state one exchange late. The fix mutes the O_I ports on that
+one turn only. It is METIS commit 01d85ad1 (M. Schneider, branch develop_mir) and is not on
+METIS develop yet (checked 2026-10-15, develop = 49aababb).
+
+QUICKEST WAY (in local_installs/metis; puts the fix in the code, no new branch, no commit)
+    git checkout develop
+    git cherry-pick -n 01d85ad1
+
+BY HAND
+File: workflow/muscle3/mfile/metis4muscle3.m. Three changes; line numbers are those of
+develop 49aababb before the change.
+
+1) Line 400. After this line:
+       while ~internal_state.workflow.state.metis_exit
+   add:
+       metis_initialisation_turn = false;
+
+2) Line 819, end of the initialisation block. After these lines:
+       internal_state.workflow.state.metis_init  = true;
+       internal_state.workflow.state.resuming    = false;
+       internal_state.workflow.state.should_init = false;
+   add:
+       metis_initialisation_turn = true;
+
+3) Line 1052, just after "% here we send messages to the wild". Replace this line:
+       send_muscle3_messages(internal_state,internal_state.actor.settings.value.metis.synchronization.flush);
+   with (code of 01d85ad1, its long comment left out):
+       if metis_initialisation_turn && ~internal_state.workflow.state.init_only
+           internal_state.actor.logger.info("Initialisation turn: no message is sent on O_I ports");
+           disp("Initialisation turn: no message is sent on O_I ports");
+           send_state  = internal_state;
+           noms_out_i  = fieldnames(send_state.actor.io.list);
+           for k_out_i = 1:length(noms_out_i)
+               if send_state.actor.io.status.(noms_out_i{k_out_i}) && ...
+                       strcmpi(send_state.actor.io.list.(noms_out_i{k_out_i}).direction,'output') && ...
+                       isfield(send_state.actor.io.list.(noms_out_i{k_out_i}),'operator') && ...
+                       strcmpi(send_state.actor.io.list.(noms_out_i{k_out_i}).operator,'O_I')
+                   send_state.actor.io.status.(noms_out_i{k_out_i}) = false;
+               end
+           end
+           send_muscle3_messages(send_state,internal_state.actor.settings.value.metis.synchronization.flush);
+           clear send_state noms_out_i k_out_i
+       else
+           send_muscle3_messages(internal_state,internal_state.actor.settings.value.metis.synchronization.flush);
+       end
+
+CHECK
+In a run, the stdout of the `metis` instance prints:
+    Initialisation turn: no message is sent on O_I ports

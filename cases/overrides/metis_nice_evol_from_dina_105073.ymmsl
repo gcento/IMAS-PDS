@@ -1,0 +1,12 @@
+ymmsl_version: v0.2
+# Per-shot override for metis_nice_evol_from_dina, shot 105073 (DINA data: 39 slices,
+# 5.918-207.764 s). t_min is the 16th slice (84.4176 s). Window length (0.55 s) and time step
+# (10 ms) are those of the 105084 override, so that the two shots can be compared.
+settings:
+  source_nice.t_min: 84.41759781205512
+  source_metis.t_min: 84.41759781205512
+  nice_evo_rd.t_end: 84.97
+  metis_init.metis_clock_time_dt: 0.01
+  metis.metis_clock_time_dt: 0.01
+  nice_evo_rd.t_interval: 0.01
+  nice_evo_rd.dt: 0.01

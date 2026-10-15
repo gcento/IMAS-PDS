@@ -12,26 +12,26 @@
 # https://github.com/MireilleSchneider/plasmaless-tokamak-circuits/tree/IMAS_Muscle3/muscle3
 
 INSTALL_PDS="true"
-INSTALL_IMAS_MUSCLE3="false"
+INSTALL_IMAS_MUSCLE3="true"
 INSTALL_MUSCLE3_DASHBOARD="false"
 INSTALL_WAVEFORM_EDITOR="false"
-INSTALL_METIS="false"
-INSTALL_NICE="false"
+INSTALL_METIS="true"
+INSTALL_NICE="true"
 INSTALL_TORAX="false"
 INSTALL_CHEASE="false"
-INSTALL_PCS="false"
-INSTALL_PLASMALESS="false"
+INSTALL_PCS="true"
+INSTALL_PLASMALESS="true"
 
 BRANCH_PDS='master'
 BRANCH_IMAS_MUSCLE3='develop'
 BRANCH_MUSCLE3_DASHBOARD='main'
 BRANCH_WAVEFORM_EDITOR='main'
-BRANCH_METIS='muscle3_develop'
-BRANCH_NICE='master'
+BRANCH_METIS='develop'
+BRANCH_NICE='develop'
 BRANCH_TORAX='develop'
 BRANCH_CHEASE='feature/muscle3'
 BRANCH_PCS='master'
-BRANCH_PLASMALESS='IMAS_Muscle3'
+BRANCH_PLASMALESS='IMAS_Muscle3_with_plasma'
 
 is_sourced() {
   [[ "${BASH_SOURCE[0]}" != "$0" ]]
@@ -159,7 +159,7 @@ CURR_INSTALL='START'
 
   # SET UP PLASMALESS (MATLAB coil+vessel model, actor of workflows/plasmaless_controller)
   CURR_INSTALL='PLASMALESS'
-  PLASMALESS_URL="https://github.com/MireilleSchneider/plasmaless-tokamak-circuits.git"
+  PLASMALESS_URL="https://github.com/federico-pesamosca/plasmaless-tokamak-circuits.git"
   if [ "$INSTALL_PLASMALESS" = "true" ] \
     && git ls-remote "$PLASMALESS_URL" &>/dev/null; then
     echo "############## INSTALLING PLASMALESS ##############"
