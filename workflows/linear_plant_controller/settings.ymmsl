@@ -1,0 +1,44 @@
+ymmsl_version: v0.2
+
+# Generic settings for linear_plant_controller, stacked after workflow.ymmsl by
+# bin/pds-create-case / bin/pds-run-case.sbatch. ${SHOT} is filled in by pds-create-case.
+# The pulse window (source.t_min/t_max, plant.t_end) and the plant model
+# (plant.linear_model_dir, plant.operating_point) are per shot: every shot needs
+# cases/overrides/linear_plant_controller_<shot>.ymmsl.
+
+settings:
+  # Initial state: built once by preprocess.sh, which runs plasmaless_controller's
+  # preprocess (NICE inverse equilibrium and pf_active of a completed
+  # metis_nice_inverse_from_dina run for the same shot, window source.t_min/t_max) into
+  # ${CASE_DIR}/preprocess/initial_state; see workflows/plasmaless_controller/settings.ymmsl.
+  source.source_uri: "imas:hdf5?path=${CASE_DIR}/preprocess/initial_state"
+  source.iterative: False
+  source.t_min: 0.0
+
+  # Plant step and exchange period (must be equal): the exchange period hard-coded in
+  # my_contr (in_out_dt = 0.002 in muscle_controller_NICE_IMAS_iter_init.m).
+  plant.dt: 0.002
+  plant.t_interval: 0.002
+  # Plant model, set per shot in the case override (linear_models/README.md):
+  # - plant.linear_model_dir: a folder of linear_models/ (linear_model.json + A, B, C
+  #   matrices, see the plasmaless repository README, section "External linear model"):
+  #   plasmaless_md_dd4, niceSimpleLin_105073_t84.4176, niceLin_105073_t84.4176; empty =
+  #   the plasmaless circuit model built by the actor itself;
+  # - plant.operating_point (NICE models only): descriptor (default) = coil currents, Ip
+  #   and magnetic axis start at the model's linearisation point; f_init = start from the
+  #   F_INIT scenario values at t0.
+  # Machine description: the actor's default (data/md_dd4 of the plasmaless repository);
+  # set plant.md_uri to use another entry.
+
+  # Output. `../../../` climbs out of the instance's own work directory, so the entries
+  # land next to the run's logs in <run_dir>/ rather than under instances/.
+  sink_equilibrium.sink_uri: "imas:hdf5?path=../../../out_plant"
+  sink_control.sink_uri: "imas:hdf5?path=../../../out_controller"
+  sink_equilibrium.sink_mode: "w"
+  sink_control.sink_mode: "w"
+
+  # Live figures (m3dash): coil currents, passive currents and applied coil voltages; the
+  # recorder writes Zarr stores under <run_dir>/instances/recorder_plant/workdir/<port>/.
+  recorder_plant.config: ${PDS_REPO}/visualization/plasmaless_currents.py
+
+  muscle_remote_log_level: 'INFO'

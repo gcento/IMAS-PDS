@@ -1,0 +1,19 @@
+ymmsl_version: v0.2
+# Pulse 105073. Window and t0 as plasmaless_controller_105073: source.t_min 81.0 / t_max
+# 100.0 of the NICE inverse output of metis_nice_inverse_from_dina_105073; t0 = 81.4576 s,
+# the first inverse slice in the window, 3.0 s before the linearisation time 84.4176 s of
+# the NICE models. plant.t_end 83.4576 = 2 s of closed loop (1000 exchanges at the
+# workflow's dt 0.002).
+# Plant model: keep exactly one plant.linear_model_dir line active, then recreate the case
+# (bin/pds-create-case linear_plant_controller 105073); see linear_models/README.md.
+# plant.operating_point (NICE models only): descriptor = coil currents, Ip and magnetic axis
+# start at the model's linearisation point; f_init = start from the F_INIT (inverse) values
+# at t0.
+settings:
+  source.t_min: 81.0
+  source.t_max: 100.0
+  plant.t_end: 83.4576
+  plant.linear_model_dir: "${PDS_REPO}/linear_models/niceSimpleLin_105073_t84.4176"
+  # plant.linear_model_dir: "${PDS_REPO}/linear_models/niceLin_105073_t84.4176"
+  # plant.linear_model_dir: "${PDS_REPO}/linear_models/plasmaless_md_dd4"   # plasmaless: coil+vessel circuits, no plasma
+  plant.operating_point: descriptor

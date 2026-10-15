@@ -7,11 +7,11 @@ set -euo pipefail # stop if anything doesn't work
 # IMAS-MATLAB are loaded at run time by the `plasmaless` program in
 # workflows/lib/local_programs.ymmsl, not here.
 #
-# BRANCH_PLASMALESS defaults to the IMAS_Muscle3 branch of the fork, which holds the
-# MUSCLE3 actor (main does not). A tag or commit may be passed as 2nd argument instead
-# to pin a version.
-PLASMALESS_URL=${1:-"https://github.com/MireilleSchneider/plasmaless-tokamak-circuits.git"}
-BRANCH_PLASMALESS=${2:-"IMAS_Muscle3"}
+# BRANCH_PLASMALESS defaults to the IMAS_Muscle3_absolute branch of the fork, which holds
+# the MUSCLE3 actor with external linear models, deviation or absolute (main does not).
+# A tag or commit may be passed as 2nd argument instead to pin a version.
+PLASMALESS_URL=${1:-"https://github.com/gcento/plasma-tokamak-circuits.git"}
+BRANCH_PLASMALESS=${2:-"IMAS_Muscle3_absolute"}
 
 if [[ ! -d "plasmaless-tokamak-circuits/.git" ]]; then
   git clone $PLASMALESS_URL plasmaless-tokamak-circuits

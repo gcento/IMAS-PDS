@@ -1,0 +1,10 @@
+Order of the linear model
+  rmag
+  zmag
+  rX
+  zX
+  rX2
+  zX2
+  Ip
+  gaps (n_gaps = 3)
+  Dist2ndSep

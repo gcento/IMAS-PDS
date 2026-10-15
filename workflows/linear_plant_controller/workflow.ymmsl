@@ -1,0 +1,42 @@
+ymmsl_version: v0.2
+# plasmaless_controller with my_contr as controller and a choice of plant model: the
+# plasmaless coil+vessel circuit model (no plasma) or a NICE linear model of
+# linear_models/ (niceSimpleLin, niceLin), selected by plant.linear_model_dir in
+# cases/overrides/linear_plant_controller_<shot>.ymmsl (linear_models/README.md).
+# The plant is the plasmaless actor for every model (implementation plasmaless,
+# lib/local_programs.ymmsl), with nice_evo_rd's ports and timing; the wiring is that of
+# workflows/plasmaless_controller/workflow.ymmsl with the components renamed
+# (plasmaless -> plant, recorder_plasmaless -> recorder_plant).
+#
+# magnetic_controller is the local one (lib/local_programs.ymmsl, controllers/my_contr).
+# my_contr writes its voltages in coil order, the order the plasmaless actor reads
+# (env.sh: MY_CONTR_VOLTAGE_ORDER=coil).
+#
+# Settings come from workflows/linear_plant_controller/settings.ymmsl
+
+imports:
+- from imas_muscle3 import implementation source_component
+- from imas_muscle3 import implementation sink_component
+- from imas_muscle3 import implementation recorder_component
+- from lib.local_programs import implementation plasmaless
+- from lib.local_programs import implementation magnetic_controller
+
+models:
+  linear_plant_controller:
+    components:
+      source:  {description: initial state (equilibrium + pf_active) built by preprocess.sh from a completed metis_nice_inverse_from_dina run, implementation: source_component, ports: {o_i: [equilibrium_out, pf_active_out]}}
+      plant: {description: linear plant model (plasmaless actor; model chosen by plant.linear_model_dir), implementation: plasmaless, ports: {f_init: [equilibrium_f_init, pf_active_f_init], s: [pf_active_s], o_i: [equilibrium_o_i, pf_active_o_i, pf_passive_o_i]}}
+      magnetic_controller: {description: PCSSP magnetic (SCDDS) controller (controllers/my_contr), implementation: magnetic_controller, ports: {f_init: [equilibrium_in_f, pf_active_in_f], s: [equilibrium_in_s, pf_active_in_s], o_i: [pf_active_out_i]}}
+      sink_equilibrium: {description: sink -- plant outputs, implementation: sink_component, ports: {f_init: [equilibrium_in, pf_active_in, pf_passive_in]}}
+      sink_control: {description: sink -- controller outputs, implementation: sink_component, ports: {f_init: [pf_active_in]}}
+      recorder_plant: {description: distill recorder (plant coil and passive currents and applied coil voltages), implementation: recorder_component, ports: {s: [pf_active_in, pf_passive_in]}}
+    conduits:
+      source.equilibrium_out: [magnetic_controller.equilibrium_in_f, plant.equilibrium_f_init]
+      source.pf_active_out: [magnetic_controller.pf_active_in_f, plant.pf_active_f_init]
+
+      plant.equilibrium_o_i: [magnetic_controller.equilibrium_in_s, sink_equilibrium.equilibrium_in]
+      plant.pf_active_o_i: [magnetic_controller.pf_active_in_s, sink_equilibrium.pf_active_in, recorder_plant.pf_active_in]
+      plant.pf_passive_o_i: [sink_equilibrium.pf_passive_in, recorder_plant.pf_passive_in]
+
+      magnetic_controller.pf_active_out_i: [plant.pf_active_s, sink_control.pf_active_in]
+resources: {linear_plant_controller.plant: {threads: 1}, linear_plant_controller.magnetic_controller: {threads: 1}, linear_plant_controller.recorder_plant: {threads: 1}}

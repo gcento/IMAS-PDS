@@ -1,0 +1,14 @@
+ymmsl_version: v0.2
+# Pulse 105084, flattop window as plasmaless_controller_105084: source.t_min 136.0 / t_max
+# 256.0 of the NICE inverse output of metis_nice_inverse_from_dina_105084; t0 = 136.2276 s.
+# plant.t_end 140.0: about 1,900 exchanges at the workflow's dt 0.002
+# (plasmaless_controller_105084 runs to 160.0 s at dt 0.005, which at 0.002 would be about
+# 12,000 exchanges).
+# Plant model: the NICE models of linear_models/ are linearisations of pulse 105073, so this
+# shot uses the plasmaless circuit model (linear_models/README.md), an absolute model started
+# from the F_INIT coil currents (plant.operating_point does not apply).
+settings:
+  source.t_min: 136.0
+  source.t_max: 256.0
+  plant.t_end: 140.0
+  plant.linear_model_dir: "${PDS_REPO}/linear_models/plasmaless_md_dd4"   # plasmaless: coil+vessel circuits, no plasma

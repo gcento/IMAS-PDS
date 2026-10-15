@@ -4,6 +4,7 @@ function muscle_NICE_input(t_cur,voltage,coil_current)
 
 global z_cur
 persistent z_ref
+persistent vs1_warned
 % retrieve instance object from base WS
 instance = evalin('base','instance');
 logger = evalin('base','logger');
@@ -81,8 +82,34 @@ voltage_full(14) = voltage(13);
 %voltage(13) =  Vmax(end) .* tanh(exp(1) *((dz_cor/5 + dz_cor^3)/1.2));
 %voltage(14) = - voltage(13);
 %logger.info(sprintf('dz_cor = %g & Vs = %g (V) with z_ref = %g (m) & z_cur = %g (m)\n',dz_cor,voltage(13),z_ref,z_cur));
+% Order of the 14 voltages written into pf_active.coil{i}.voltage, chosen by the
+% environment variable MY_CONTR_VOLTAGE_ORDER (set in the workflow's env.sh):
+%   supply (default): power-supply order, as NICE evolutive reads them
+%                     [CS3U CS2U CS1U CS1L CS2L CS3L PF1 PF2 PF3 PF4 PF5 VS1 PF6 VS3]
+%   coil:             coil order, as the plasmaless actor reads them (workflow
+%                     linear_plant_controller) [CS3U ... PF5 PF6 VS3U VS3L]: PF6 goes to
+%                     slot 12, the VS3 generator voltage is split on the anti-series pair
+%                     (VS3U = -VS3/2, VS3L = +VS3/2, so that VS3 = V(VS3L) - V(VS3U) as in
+%                     the input_map of the linear models), VS1 is dropped (no coil carries it)
+voltage_order = getenv('MY_CONTR_VOLTAGE_ORDER');
+if isempty(voltage_order)
+    voltage_order = 'supply';
+end
+switch voltage_order
+    case 'supply'
+    case 'coil'
+        if voltage_full(12) ~= 0 && isempty(vs1_warned)
+            logger.warning(sprintf(['muscle_NICE_input: MY_CONTR_VOLTAGE_ORDER=coil drops the ', ...
+                'VS1 command (%g V at t = %g s): no coil carries it'], voltage_full(12), t_cur));
+            vs1_warned = true;
+        end
+        voltage_full = [voltage_full(1:11), voltage_full(13), -voltage_full(14)/2, voltage_full(14)/2];
+    otherwise
+        error('muscle_NICE_input:voltageOrder', ...
+            'MY_CONTR_VOLTAGE_ORDER must be ''supply'' or ''coil'' (got ''%s'').', voltage_order);
+end
 voltage = voltage_full;
-%voltage = zeros(1,14);   
+%voltage = zeros(1,14);
 
 pfa = ids_init('pf_active');
 pfa.ids_properties.homogeneous_time = 1;
