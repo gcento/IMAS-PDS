@@ -17,6 +17,7 @@ settings:
   metis_init.metis_clock_time_dt: 0.01
   nice_evo_rd.t_interval: 0.01
   nice_evo_rd.dt: 0.01
+  magnetic_controller.in_out_msg_dt: 0.01
   metis.metis_clock_time_dt: 0.01
   source_nice.t_min: 136.0
   source_metis.t_min: 136.0

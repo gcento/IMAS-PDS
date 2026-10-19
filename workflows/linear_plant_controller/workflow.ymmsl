@@ -24,7 +24,7 @@ imports:
 models:
   linear_plant_controller:
     components:
-      source:  {description: initial state (equilibrium + pf_active) built by preprocess.sh from a completed metis_nice_inverse_from_dina run, implementation: source_component, ports: {o_i: [equilibrium_out, pf_active_out]}}
+      source:  {description: initial state (equilibrium + pf_active) built by preprocess.sh from the NICE inverse run of preprocess.source_uri, implementation: source_component, ports: {o_i: [equilibrium_out, pf_active_out]}}
       plant: {description: linear plant model (plasmaless actor; model chosen by plant.linear_model_dir), implementation: plasmaless, ports: {f_init: [equilibrium_f_init, pf_active_f_init], s: [pf_active_s], o_i: [equilibrium_o_i, pf_active_o_i, pf_passive_o_i]}}
       magnetic_controller: {description: PCSSP magnetic (SCDDS) controller (controllers/my_contr), implementation: magnetic_controller, ports: {f_init: [equilibrium_in_f, pf_active_in_f], s: [equilibrium_in_s, pf_active_in_s], o_i: [pf_active_out_i]}}
       sink_equilibrium: {description: sink -- plant outputs, implementation: sink_component, ports: {f_init: [equilibrium_in, pf_active_in, pf_passive_in]}}

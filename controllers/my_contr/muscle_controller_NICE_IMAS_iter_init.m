@@ -96,12 +96,29 @@ if instance.reuse_instance()
     N_GAPS = 62;
     gaps_ref = zeros(N_GAPS,n_slices); %TODO: update gaps
     
+    % Plasma position read by the controller, for the R/Z references here and the
+    % measurement in muscle_IDS_NICE_output: setting plasma_position (in a case override:
+    % magnetic_controller.plasma_position), 'geometric_axis' (boundary geometric axis,
+    % default) or 'magnetic_axis' (global_quantities.magnetic_axis: the linear plant models
+    % move the magnetic axis, while their geometric axis is the reference passed through).
+    plasma_position = char(instance.get_setting('plasma_position', pyargs('default', 'geometric_axis')));
+    if ~any(strcmp(plasma_position, {'geometric_axis','magnetic_axis'}))
+        error('muscle_controller_NICE_IMAS_iter_init:plasma_position', ...
+            'plasma_position must be ''geometric_axis'' or ''magnetic_axis'' (got ''%s'').', plasma_position);
+    end
+    logger.info(sprintf('plasma position = %s', plasma_position));
+
     for i=1:n_slices
         ip_ref(i)   = equilibrium.time_slice{i}.global_quantities.ip;
-        rgeo_ref(i) = equilibrium.time_slice{i}.boundary.geometric_axis.r;
-        zgeo_ref(i) = equilibrium.time_slice{i}.boundary.geometric_axis.z;
-        rgeo_ref(i) = geo_ref_with_fallback(rgeo_ref(i), equilibrium.time_slice{i}, 'r', logger);
-        zgeo_ref(i) = geo_ref_with_fallback(zgeo_ref(i), equilibrium.time_slice{i}, 'z', logger);
+        if strcmp(plasma_position, 'magnetic_axis')
+            rgeo_ref(i) = equilibrium.time_slice{i}.global_quantities.magnetic_axis.r;
+            zgeo_ref(i) = equilibrium.time_slice{i}.global_quantities.magnetic_axis.z;
+        else
+            rgeo_ref(i) = equilibrium.time_slice{i}.boundary.geometric_axis.r;
+            zgeo_ref(i) = equilibrium.time_slice{i}.boundary.geometric_axis.z;
+            rgeo_ref(i) = geo_ref_with_fallback(rgeo_ref(i), equilibrium.time_slice{i}, 'r', logger);
+            zgeo_ref(i) = geo_ref_with_fallback(zgeo_ref(i), equilibrium.time_slice{i}, 'z', logger);
+        end
     end
 
     Ipl_ref =  timeseries(ip_ref,equilibrium.time);
@@ -112,26 +129,33 @@ if instance.reuse_instance()
 
     
 
-    enable_KCURR=1; %Enable CSPF current controller KCURR (=1)
-    IpControlMode_KCURR=0; %Activation of Ip Control if == 1
+    enable_KCURR= double(instance.get_setting('KCURR', pyargs('default', 0))); %Enable CSPF current controller KCURR (=1)
+    IpControlMode_KCURR= double(instance.get_setting('control_Ip', pyargs('default', 0))); %Activation of Ip Control if == 1
     schedulingVar_KCURR=0; %Ip Vector of variables for gain scheduling current controller
 
-    enable_RZIp=0;
+    enable_RZIp=double(instance.get_setting('RZIp', pyargs('default', 0)));
     IpControlMode_RZIp=0; % Activation of Ip Control if == 1
     %schedulingVar_RZIp=0; %Ip Vector of parameters used for gain scheduling in RZIp control
     %schedulingVar_RZIp =[50, 1, 1.2]';
     
-    enable_VS = 0; % Enable VS control (=1 enabled)
-    VSControlMode = 1; % VS controller Mode {'Off (0)'; 'VS1 (1)'; 'VS3 (2)'; 'VS1+VS3 (3)'}
+    enable_VS = double(instance.get_setting('VS', pyargs('default', 0))); % Enable VS control (=1 enabled)
+    VSControlMode = double(instance.get_setting('VS_control_mode', pyargs('default', 2))); % VS controller Mode {'Off (0)'; 'VS1 (1)'; 'VS3 (2)'; 'VS1+VS3 (3)'}
     %schedulingVar_VS = 0.9; %Vector of variables for gain scheduling VS controller "li3"
-    VSIpScaling = 2;% VS control action scaled with (nominal or estimated) Ip {'On with nominal Ip (1)'; 'On with estimated Ip (2)'}
+    VSIpScaling = 1;% VS control action scaled with (nominal or estimated) Ip {'On with nominal Ip (1)'; 'On with estimated Ip (2)'}
 
     SchedulingVar_GapContr = 0; % Vector of variables for gain scheduling gap control
-    ShapeIpControlMode = 0; %only gap control Shape-Ip control mode {'Off (0)'; 'PositionControl Rpl and Zpl (1)'; 'Isoflux ShapeControl (2)'; 'Isoflux Shape Control with Xpoint (3)'; 'Gap Control (4)'; 'Only CSPF Currents (5)'}
+    ShapeIpControlMode = double(instance.get_setting('Shape_control', pyargs('default', 0))); %only gap control Shape-Ip control mode {'Off (0)'; 'PositionControl Rpl and Zpl (1)'; 'Isoflux ShapeControl (2)'; 'Isoflux Shape Control with Xpoint (3)'; 'Gap Control (4)'; 'Only CSPF Currents (5)'}
     SCIpScaling = 0; %Shape control action scaled with (nominal or estimated) Ip {'Off (0)'; 'On with nominal Ip (1)'; 'On with estimated Ip (2)'}
     IpControlMode = 0; % Activation of Ip Control (In case of CCS, 0 non active, 1 if integrated with KCURR, 2 if integrated with Shape control, In case of VCS 0 non active, 1 active).
     
-    in_out_dt = 0.002;
+    % Exchange period with the plant (s), the sample time of the CODAC_input, MATLAB
+    % Function and Output blocks of the Simulink model: setting in_out_msg_dt (in a case
+    % override: magnetic_controller.in_out_msg_dt), default 0.002. It must equal the plant's
+    % exchange period (plant.t_interval, nice_evo_rd.t_interval); muscle_IDS_NICE_output
+    % stops the run if it does not.
+    in_out_dt = double(instance.get_setting('in_out_msg_dt', pyargs('default', 0.002)));
+
+    logger.info(sprintf('exchange period in_out_dt = %g s', in_out_dt));
     %%  Simulink controller
 
     obj = pcssp_KCURR_PFPO1_obj();

@@ -26,7 +26,10 @@ the other outputs by `sink_equilibrium` to `<run_dir>/out_plasmaless`.
 
 Plasma and coil data come only from the NICE inverse run (`nice_out` of
 `cases/runs/metis_nice_inverse_from_dina_<shot>`); only machine descriptions come from
-elsewhere. Nothing is read from pds-scenarios `<shot>/data/in` (DINA).
+elsewhere. Nothing is read from pds-scenarios `<shot>/data/in` (DINA). The inverse run is
+the setting `preprocess.source_uri` (default in `settings.ymmsl`); a case override can point
+it at another run, e.g. `inverse_convergence_<shot>/out_nice` (the default of
+`linear_plant_controller`, which shares this preprocess).
 
 - Case creation (`bin/pds-create-case`, once): `preprocess.sh` runs
   `preprocess_initial_state.py`, which makes the calls the former in-workflow chain

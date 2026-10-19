@@ -4,7 +4,6 @@ function muscle_NICE_input(t_cur,voltage,coil_current)
 
 global z_cur
 persistent z_ref
-persistent vs1_warned
 % retrieve instance object from base WS
 instance = evalin('base','instance');
 logger = evalin('base','logger');
@@ -44,17 +43,37 @@ if numel(voltage) ~= 13
 end
 %voltage from controller
 %voltage = [CS3U CS2U CS1 CS2L CS3L PF1 PF2 PF3 PF4 PF5 PF6 VS1 VS3]
-cs3u_pf5 = [1 2 3 3 4 5 6 7 8 9 10];
-voltage_full = zeros(1,14);
-voltage_full(1:11) = voltage(cs3u_pf5);
-voltage_full(3:4) = voltage_full(3:4)/2;
-voltage_full(12) = voltage(12);
-voltage_full(13) = voltage(11);
-voltage_full(14) = voltage(13);
+voltage = reshape(voltage,1,[]);
 
-% voltages given to NICE are according to the power supplies
-% To be verified: maybe we need to invert voltages in VS3 and VS1
-% voltage_full = [CS3U CS2U CS1U CS1L CS2L CS3L PF1 PF2 PF3 PF4 PF5 VS1 PF6 VS3]
+% The 14 voltages written into pf_active.coil{i}.voltage, in the order chosen by the
+% environment variable MY_CONTR_VOLTAGE_ORDER (set in the workflow's env.sh). In both
+% orders the CS1 voltage is split in half on CS1U and CS1L (one circuit, two coils).
+voltage_order = getenv('MY_CONTR_VOLTAGE_ORDER');
+if isempty(voltage_order)
+    voltage_order = 'supply';
+end
+switch voltage_order
+    case 'supply'
+        % power-supply order, as NICE evolutive reads them (default)
+        % voltage_full = [CS3U CS2U CS1U CS1L CS2L CS3L PF1 PF2 PF3 PF4 PF5 VS1 PF6 VS3]
+        % To be verified: maybe we need to invert voltages in VS3 and VS1
+        voltage_full = [voltage(1:2), voltage(3)/2, voltage(3)/2, voltage(4:10),voltage(12), voltage(11), voltage(13)];
+    case 'coil'
+        % coil order, used by all linear models since the ones linearized from NICE receive
+        % linearized from NICE: coil_order --> input_map(coil2supply) --> B 
+        % linear models: coil_order --> B
+        % voltage_full = [CS3U CS2U CS1U CS1L CS2L CS3L PF1 PF2 PF3 PF4 PF5 PF6 VS3U VS3L]
+        % The VS3 generator voltage is split on the anti-series pair (VS3U = -VS3/2,
+        % VS3L = +VS3/2, so that VS3 = V(VS3L) - V(VS3U) as in the input_map of the linear
+        % models). VS1 is the star-point converter in series with PF2..PF5: its voltage
+        % goes on their coil voltages with signs - - + + (in the B matrix of the NICE
+        % linear models the VS1 column is -PF2 -PF3 +PF4 +PF5 to round-off).
+        vs1_to_pf2345 = [-1 -1 1 1];
+        voltage_full = [voltage(1:2), voltage(3)/2, voltage(3)/2, voltage(4:6), ...
+            voltage(7:10) + vs1_to_pf2345*voltage(12), voltage(11), -voltage(13)/2, voltage(13)/2];
+    otherwise
+        error('muscle_NICE_input:voltageOrder','MY_CONTR_VOLTAGE_ORDER must be ''supply'' or ''coil'' (got ''%s'').', voltage_order);
+end
 
 % RZIp's VS voltage command isn't wired into this signal. Fall back to a
 % resistive (V=IR) estimate from the last measured VS currents when
@@ -82,32 +101,6 @@ voltage_full(14) = voltage(13);
 %voltage(13) =  Vmax(end) .* tanh(exp(1) *((dz_cor/5 + dz_cor^3)/1.2));
 %voltage(14) = - voltage(13);
 %logger.info(sprintf('dz_cor = %g & Vs = %g (V) with z_ref = %g (m) & z_cur = %g (m)\n',dz_cor,voltage(13),z_ref,z_cur));
-% Order of the 14 voltages written into pf_active.coil{i}.voltage, chosen by the
-% environment variable MY_CONTR_VOLTAGE_ORDER (set in the workflow's env.sh):
-%   supply (default): power-supply order, as NICE evolutive reads them
-%                     [CS3U CS2U CS1U CS1L CS2L CS3L PF1 PF2 PF3 PF4 PF5 VS1 PF6 VS3]
-%   coil:             coil order, as the plasmaless actor reads them (workflow
-%                     linear_plant_controller) [CS3U ... PF5 PF6 VS3U VS3L]: PF6 goes to
-%                     slot 12, the VS3 generator voltage is split on the anti-series pair
-%                     (VS3U = -VS3/2, VS3L = +VS3/2, so that VS3 = V(VS3L) - V(VS3U) as in
-%                     the input_map of the linear models), VS1 is dropped (no coil carries it)
-voltage_order = getenv('MY_CONTR_VOLTAGE_ORDER');
-if isempty(voltage_order)
-    voltage_order = 'supply';
-end
-switch voltage_order
-    case 'supply'
-    case 'coil'
-        if voltage_full(12) ~= 0 && isempty(vs1_warned)
-            logger.warning(sprintf(['muscle_NICE_input: MY_CONTR_VOLTAGE_ORDER=coil drops the ', ...
-                'VS1 command (%g V at t = %g s): no coil carries it'], voltage_full(12), t_cur));
-            vs1_warned = true;
-        end
-        voltage_full = [voltage_full(1:11), voltage_full(13), -voltage_full(14)/2, voltage_full(14)/2];
-    otherwise
-        error('muscle_NICE_input:voltageOrder', ...
-            'MY_CONTR_VOLTAGE_ORDER must be ''supply'' or ''coil'' (got ''%s'').', voltage_order);
-end
 voltage = voltage_full;
 %voltage = zeros(1,14);
 

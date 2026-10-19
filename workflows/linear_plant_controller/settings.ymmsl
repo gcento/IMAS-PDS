@@ -4,31 +4,51 @@ ymmsl_version: v0.2
 # bin/pds-create-case / bin/pds-run-case.sbatch. ${SHOT} is filled in by pds-create-case.
 # The pulse window (source.t_min/t_max, plant.t_end) and the plant model
 # (plant.linear_model_dir, plant.operating_point) are per shot: every shot needs
-# cases/overrides/linear_plant_controller_<shot>.ymmsl.
+# cases/overrides/linear_plant_controller_<shot>.ymmsl. A key set there wins over the
+# value here. 
 
 settings:
   # Initial state: built once by preprocess.sh, which runs plasmaless_controller's
-  # preprocess (NICE inverse equilibrium and pf_active of a completed
-  # metis_nice_inverse_from_dina run for the same shot, window source.t_min/t_max) into
-  # ${CASE_DIR}/preprocess/initial_state; see workflows/plasmaless_controller/settings.ymmsl.
+  # preprocess: NICE inverse equilibrium and pf_active of preprocess.source_uri (default:
+  # out_nice of a completed inverse_convergence run for the same shot), window
+  # source.t_min/t_max, written to ${CASE_DIR}/preprocess/initial_state (see
+  # workflows/plasmaless_controller/settings.ymmsl). The run starts at the first time of
+  # the window (t0); the controller takes its references from the same entry.
+  preprocess.source_uri: "imas:hdf5?path=${PDS_REPO}/cases/runs/inverse_convergence_${SHOT}/out_nice"
   source.source_uri: "imas:hdf5?path=${CASE_DIR}/preprocess/initial_state"
   source.iterative: False
   source.t_min: 0.0
 
-  # Plant step and exchange period (must be equal): the exchange period hard-coded in
-  # my_contr (in_out_dt = 0.002 in muscle_controller_NICE_IMAS_iter_init.m).
+  # Exchange period (s): the plant step, the plant exchange period and the controller
+  # exchange period must be equal. To change it, set all three in the case override;
+  # my_contr stops the run if its period differs from the plant's.
   plant.dt: 0.002
   plant.t_interval: 0.002
+  magnetic_controller.in_out_msg_dt: 0.002
+
   # Plant model, set per shot in the case override (linear_models/README.md):
-  # - plant.linear_model_dir: a folder of linear_models/ (linear_model.json + A, B, C
-  #   matrices, see the plasmaless repository README, section "External linear model"):
-  #   plasmaless_md_dd4, niceSimpleLin_105073_t84.4176, niceLin_105073_t84.4176; empty =
-  #   the plasmaless circuit model built by the actor itself;
-  # - plant.operating_point (NICE models only): descriptor (default) = coil currents, Ip
-  #   and magnetic axis start at the model's linearisation point; f_init = start from the
-  #   F_INIT scenario values at t0.
+  # - plant.linear_model_dir: a folder of linear_models/ (linear_model.json + continuous
+  #   A, B, C matrices, discretised by the plant with plant.dt): plasmaless_md_dd4,
+  #   niceSimpleLin_105073_t84.4176, niceLin_105073_t84.4176; empty = the plasmaless
+  #   circuit model built by the actor itself;
+  # - plant.operating_point (models in deviation coordinates, i.e. the NICE models):
+  #   descriptor (default) = start from the model's linearisation point; f_init = start
+  #   from the F_INIT values at t0, scenario voltages included 
   # Machine description: the actor's default (data/md_dd4 of the plasmaless repository);
   # set plant.md_uri to use another entry.
+
+  # Controller my_contr (controllers/my_contr/muscle_controller_NICE_IMAS_iter_init.m):
+  # 1 = on, 0 = off; change them in the case override.
+  magnetic_controller.KCURR: 1            # CS/PF coil-current controller
+  magnetic_controller.control_Ip: 0       # Ip control inside KCURR
+  magnetic_controller.RZIp: 0             # R, Z, Ip controller
+  magnetic_controller.VS: 0               # vertical stabilisation (needed with niceLin)
+  magnetic_controller.VS_control_mode: 2  # VS actuator: 1 VS1, 2 VS3, 3 VS1+VS3
+  magnetic_controller.Shape_control: 0    # Shape-Ip control mode, 0 = off
+  # Plasma position read by the controller (measurement and R/Z references): the linear
+  # models move the magnetic axis; the boundary geometric axis is only the reference
+  # passed through by the plant.
+  magnetic_controller.plasma_position: magnetic_axis
 
   # Output. `../../../` climbs out of the instance's own work directory, so the entries
   # land next to the run's logs in <run_dir>/ rather than under instances/.

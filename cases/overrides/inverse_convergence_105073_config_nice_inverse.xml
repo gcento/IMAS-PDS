@@ -316,5 +316,10 @@
 <!-- inverse (psi, theta) grid  -->
     <n_theta_grid>101</n_theta_grid>
 
+	<outputCartGrid>1</outputCartGrid>
+	<nr_cartgrid>97</nr_cartgrid>
+	<nz_cartgrid>205</nz_cartgrid>
+
+
 </parameters>
 

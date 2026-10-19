@@ -2,10 +2,16 @@ close all
 clc
 clear
 
-csv_file = '/home/ITER/centong/Desktop/PDSs/IMAS-PDS-plasmaless/sim_log.csv';
-run_dir  = '/home/ITER/centong/Desktop/PDSs/IMAS-PDS-plasmaless/cases/runs/my_plasmaless_controller_105084_20261009_163111';
-case_dir = '/home/ITER/centong/Desktop/PDSs/IMAS-PDS-plasmaless/cases/my_plasmaless_controller_105084';
-plasmaless_dir = fullfile(run_dir, '/out_plasmaless/');
+run_dir  = '/home/ITER/centong/Desktop/PDSs/IMAS-PDS/cases/runs/linear_plant_controller_105073_20261018_132613';
+csv_file = fullfile(run_dir, 'simulink_log.csv');
+
+[runs_dir, run_name] = fileparts(strip(run_dir, 'right', '/'));
+case_dir = fullfile(fileparts(runs_dir), regexprep(run_name, '_\d{8}_\d{6}$', ''));
+% plant outputs: out_plant (linear_plant_controller) or out_plasmaless (plasmaless_controller)
+plasmaless_dir = fullfile(run_dir, 'out_plant');
+if ~isfolder(plasmaless_dir)
+    plasmaless_dir = fullfile(run_dir, 'out_plasmaless');
+end
 
 eq_file   = fullfile(plasmaless_dir, 'equilibrium.h5');
 pfa_file  = fullfile(plasmaless_dir, 'pf_active.h5');      % plant: measured coil currents
@@ -17,6 +23,10 @@ ref_file  = fullfile(case_dir, 'preprocess', 'initial_state', 'pf_active.h5');
 ts = '/equilibrium/time_slice[]&';
 eq_signals = {
     'ip', [ts 'global_quantities&ip']
+    'zgeo', [ts 'boundary&geometric_axis&z']
+    'rgeo', [ts 'boundary&geometric_axis&r']
+    'rmag', [ts 'global_quantities&magnetic_axis&r']
+    'zmag', [ts 'global_quantities&magnetic_axis&z']
     %'li_3',[ts 'global_quantities&li_3']
     %'psi_boundary',[ts 'boundary&psi']
 };
@@ -69,8 +79,11 @@ hh = plot(csv_ctrl.t,csv_ctrl.KCURR_CSPF_ctrl_e);
 title('KCURR control error')
 ylabel('I [A]')
 nexttile
-h = plot(csv_ctrl.t,100*(csv_ctrl.KCURR_CSPF_ctrl_e ./ csv_ctrl.CSPF_curr_ref));
-title('KCURR control error [%]')
+% normalised to each circuit's max |I_ref| over the run: dividing by I_ref itself blows up
+% where a reference crosses zero (CS2L at 70.49 s in linear_plant_controller_105073)
+I_norm = max(abs(csv_ctrl.CSPF_curr_ref), [], 1);
+h = plot(csv_ctrl.t, 100*csv_ctrl.KCURR_CSPF_ctrl_e ./ I_norm);
+title('KCURR control error [% of max |I_{ref}|]')
 %h =plot(csv_ctrl.t,(csv_ctrl.KCURR_CSPF_ctrl_e));
 legend(circ_names)
 xlabel('t [s]')

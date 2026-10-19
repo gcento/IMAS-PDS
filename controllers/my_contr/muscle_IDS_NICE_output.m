@@ -105,8 +105,14 @@ if is_stale && ~isempty(last_ip)
     schedulingVar_RZIp = last_schedulingVar_RZIp;
 else
     ip= equilibrium.time_slice{1}.global_quantities.ip; 
-    rgeo=equilibrium.time_slice{1}.boundary.geometric_axis.r;
-    zgeo=equilibrium.time_slice{1}.boundary.geometric_axis.z;
+    % plasma position: the axis chosen by the setting plasma_position (init script)
+    if strcmp(evalin('base','plasma_position'), 'magnetic_axis')
+        rgeo = equilibrium.time_slice{1}.global_quantities.magnetic_axis.r;
+        zgeo = equilibrium.time_slice{1}.global_quantities.magnetic_axis.z;
+    else
+        rgeo = equilibrium.time_slice{1}.boundary.geometric_axis.r;
+        zgeo = equilibrium.time_slice{1}.boundary.geometric_axis.z;
+    end
     if isempty(last_zgeo) || isempty(last_zdot_t)
         zdot = 0;                      
     else

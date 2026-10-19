@@ -7,16 +7,17 @@ ymmsl_version: v0.2
 
 settings:
   # Initial state: preprocess.sh (run once by bin/pds-create-case) reads the NICE
-  # inverse equilibrium and pf_active (nice_out) of a completed
-  # metis_nice_inverse_from_dina run for the same shot (cases/runs/<case> convention of
-  # bin/pds-create-case / bin/pds-run-case.sbatch) in the window source.t_min/t_max
-  # (below and in the case override), applies this directory's waveforms.yaml
-  # (equilibrium time slices passed through; pf_active = machine description of
-  # pds-scenarios ${SHOT}/data/in_md with the inverse coil currents/voltages) and writes
-  # the result to ${CASE_DIR}/preprocess/initial_state. Nothing is read from
-  # ${SHOT}/data/in. source sends that entry as one whole-window message per IDS
-  # (iterative: False); the entry holds only the window, so the same t_min/t_max select
-  # all of it.
+  # inverse equilibrium and pf_active of preprocess.source_uri (default: nice_out of a
+  # completed metis_nice_inverse_from_dina run for the same shot, cases/runs/<case>
+  # convention of bin/pds-create-case / bin/pds-run-case.sbatch; a case override can
+  # point at another run) in the window source.t_min/t_max (below and in the case
+  # override), applies this directory's waveforms.yaml (equilibrium time slices passed
+  # through; pf_active = machine description of pds-scenarios ${SHOT}/data/in_md with the
+  # inverse coil currents/voltages) and writes the result to
+  # ${CASE_DIR}/preprocess/initial_state. Nothing is read from ${SHOT}/data/in. source
+  # sends that entry as one whole-window message per IDS (iterative: False); the entry
+  # holds only the window, so the same t_min/t_max select all of it.
+  preprocess.source_uri: "imas:hdf5?path=${PDS_REPO}/cases/runs/metis_nice_inverse_from_dina_${SHOT}/nice_out"
   source.source_uri: "imas:hdf5?path=${CASE_DIR}/preprocess/initial_state"
   source.iterative: False
   source.t_min: 0.0

@@ -1,19 +1,42 @@
 ymmsl_version: v0.2
-# Pulse 105073. Window and t0 as plasmaless_controller_105073: source.t_min 81.0 / t_max
-# 100.0 of the NICE inverse output of metis_nice_inverse_from_dina_105073; t0 = 81.4576 s,
-# the first inverse slice in the window, 3.0 s before the linearisation time 84.4176 s of
-# the NICE models. plant.t_end 83.4576 = 2 s of closed loop (1000 exchanges at the
-# workflow's dt 0.002).
-# Plant model: keep exactly one plant.linear_model_dir line active, then recreate the case
-# (bin/pds-create-case linear_plant_controller 105073); see linear_models/README.md.
-# plant.operating_point (NICE models only): descriptor = coil currents, Ip and magnetic axis
-# start at the model's linearisation point; f_init = start from the F_INIT (inverse) values
-# at t0.
+# Pulse 105073, linear_plant_controller. A key set here wins over
+# workflows/linear_plant_controller/settings.ymmsl. After any change recreate the case
+# (bin/pds-create-case linear_plant_controller 105073). Guide: linear_models/GUIDE.md.
+#
+# Initial state and controller references: the inverse_convergence run of 105073
+# (preprocess.source_uri, workflow default), window source.t_min/t_max. Its slices near
+# the NICE linearisation time are 79.2176, 84.3176, 89.7176 s: with t_min 84.0 the run
+# starts at t0 = 84.3176 s, 0.1 s before the linearisation time 84.4176 s. plant.t_end must
+# not exceed the last slice inside the window.
 settings:
-  source.t_min: 81.0
-  source.t_max: 100.0
-  plant.t_end: 83.4576
-  plant.linear_model_dir: "${PDS_REPO}/linear_models/niceSimpleLin_105073_t84.4176"
-  # plant.linear_model_dir: "${PDS_REPO}/linear_models/niceLin_105073_t84.4176"
-  # plant.linear_model_dir: "${PDS_REPO}/linear_models/plasmaless_md_dd4"   # plasmaless: coil+vessel circuits, no plasma
+  source.t_min: 84.0
+  source.t_max: 200.0
+  #source.source_uri:    default is nice out from inverse conv
+
+  # Linear model settings
+    # - keep only one model dir active
+    # - operating point decides where the initial state is taken: from the 
+    #   linearization equilibrium written in linear_model.json (plant.operating_point: descriptor)
+    #   or from f_init from the precomputed nice inverse equilibrium (plant.operating_point: f_init)
+  plant.t_end: 86.0
+  #plant.linear_model_dir: "${PDS_REPO}/local_installs/plasmaless-tokamak-circuits/linear_models/plasmaless_model"
+  #plant.linear_model_dir: "${PDS_REPO}/local_installs/plasmaless-tokamak-circuits/linear_models/niceSimpleLin_105073_t84.4176"
+  #plant.linear_model_dir: "${PDS_REPO}/local_installs/plasmaless-tokamak-circuits/linear_models/niceLin_105073_t84.4176"
+  plant.linear_model_dir: "${PDS_REPO}/local_installs/plasmaless-tokamak-circuits/linear_models/vertical_unstable_model_105073_t84.3176"
   plant.operating_point: descriptor
+  plant.dt: 0.001
+  plant.t_interval: 0.001
+
+  # Controller settings
+    # - keep in_out_msg_dt equal to plant.dt and plant.t_interval
+    # - when running VS control use dt = 0.001, if only KCURR dt=0.002 is fine
+    # - the options for plasma position are magnetic_axis and geometric_axis
+  magnetic_controller.KCURR: 1
+  magnetic_controller.control_Ip: 0
+  magnetic_controller.RZIp: 0
+  magnetic_controller.VS: 1
+  magnetic_controller.VS_control_mode: 3  #{'Off (0)'; 'VS1 (1)'; 'VS3 (2)'; 'VS1+VS3 (3)'}
+  magnetic_controller.in_out_msg_dt: 0.001
+  magnetic_controller.plasma_position: 'magnetic_axis'
+  
+  

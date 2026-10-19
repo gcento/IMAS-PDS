@@ -183,19 +183,26 @@ programs:
   # addpath was supposed to put on the path) came back "unrecognized function or
   # variable". `export` lines in a script:, like every actor above, are expanded in the
   # actor's own shell instead, so $PDS_REPO resolves correctly.
+  # MATLAB's Python is the muscle3 venv of the PCS module ($EBROOTPCS/muscle3_venv: muscle3
+  # 0.10.0 + ymmsl 0.17.0), as for plasmaless below. NOT local_installs/IMAS-MUSCLE3/venv:
+  # ymmsl2svg pins ymmsl to a git branch, so that venv has ymmsl 0.17.1.dev0 without
+  # Operator.NONE, and libmuscle.Instance() fails there with "AttributeError: NONE"
+  # (mmsf_validator). The controller needs no imas_muscle3. PCS_PATH and SCDDS_COREPATH are
+  # still set below to the local_installs/pcs checkout, after the module's own values.
   magnetic_controller:
     script: |
       #!/bin/bash
       repo="$PDS_REPO"
       module purge
       export PDS_REPO="$repo"
+      module load PCS/2026.08-pds
       module load IMAS-MATLAB/5.6.0-intel-2025b-DD-4.1.1
      
       unset PYTHONPATH
       export PCS_PATH=$PDS_REPO/local_installs/pcs
       export CONTROLLER_PATH=$PDS_REPO/controllers/my_contr
       export SCDDS_COREPATH=$PDS_REPO/local_installs/pcs/pcssp/scdds
-      exec matlab -batch "try; pyenv('Version','$PDS_REPO/local_installs/IMAS-MUSCLE3/venv/bin/python','ExecutionMode','InProcess'); addpath(getenv('PCS_PATH')); run('$PDS_REPO/local_installs/nice/runmatlab/initNice4matlab.m'); pcssp_pcs_add_paths; comparisons.ExternalSCMLink.setupGitConfig(); addpath(getenv('CONTROLLER_PATH')); run(fullfile(getenv('CONTROLLER_PATH'),'muscle_controller_NICE_IMAS_iter_init.m')); catch ME; disp(getReport(ME)); exit(1); end"
+      exec matlab -batch "try; pyenv('Version','$EBROOTPCS/muscle3_venv/bin/python','ExecutionMode','InProcess'); addpath(getenv('PCS_PATH')); run('$PDS_REPO/local_installs/nice/runmatlab/initNice4matlab.m'); pcssp_pcs_add_paths; comparisons.ExternalSCMLink.setupGitConfig(); addpath(getenv('CONTROLLER_PATH')); run(fullfile(getenv('CONTROLLER_PATH'),'muscle_controller_NICE_IMAS_iter_init.m')); catch ME; disp(getReport(ME)); exit(1); end"
   # Plasmaless coil+vessel model (no plasma), a stand-in for nice_evo_rd in controller
   # tests (workflows/plasmaless_controller, which imports it from here). MATLAB, no
   # EasyBuild module: the actor (muscle3/muscle_plasmaless_actor.m) runs from the

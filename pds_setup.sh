@@ -31,7 +31,7 @@ BRANCH_NICE='develop'
 BRANCH_TORAX='develop'
 BRANCH_CHEASE='feature/muscle3'
 BRANCH_PCS='master'
-BRANCH_PLASMALESS='IMAS_Muscle3_absolute'
+BRANCH_PLASMALESS='IMAS_Muscle3'
 
 is_sourced() {
   [[ "${BASH_SOURCE[0]}" != "$0" ]]

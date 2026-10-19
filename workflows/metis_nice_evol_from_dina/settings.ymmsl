@@ -87,6 +87,19 @@ settings:
   nice_evo_rd.xml_path: ${PDS_REPO}/workflows/metis_nice_evol_from_dina/config_nice.xml
   nice_evo_rd.t_interval: 0.002
   nice_evo_rd.dt: 0.002
+  # Exchange period of the controller (in_out_dt of my_contr): must equal
+  # nice_evo_rd.t_interval; a case override that changes one changes both.
+  magnetic_controller.in_out_msg_dt: 0.002
+  # Controller my_contr (controllers/my_contr/muscle_controller_NICE_IMAS_iter_init.m),
+  # 1 = on, 0 = off: the coil-current controller only, as before these were settings.
+  magnetic_controller.KCURR: 1
+  magnetic_controller.control_Ip: 0
+  magnetic_controller.RZIp: 0
+  magnetic_controller.VS: 0
+  magnetic_controller.Shape_control: 0
+  # Plasma position read by the controller: the boundary geometric axis. NICE's magnetic
+  # axis sits on a mesh node and jumps from node to node, which would give spikes in dz/dt.
+  magnetic_controller.plasma_position: geometric_axis
   # NICE/3.0.0.dev258's evolutive actor has no end-time setting of its own; the run ends
   # through METIS's metis_clock_time_stop (default Inf, i.e. unset) or the SLURM time limit.
   nice_inv.xml_path: ${PDS_REPO}/workflows/metis_nice_evol_from_dina/config_nice.xml
