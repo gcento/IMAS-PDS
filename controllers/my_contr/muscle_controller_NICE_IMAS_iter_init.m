@@ -147,6 +147,8 @@ if instance.reuse_instance()
     ShapeIpControlMode = double(instance.get_setting('Shape_control', pyargs('default', 0))); %only gap control Shape-Ip control mode {'Off (0)'; 'PositionControl Rpl and Zpl (1)'; 'Isoflux ShapeControl (2)'; 'Isoflux Shape Control with Xpoint (3)'; 'Gap Control (4)'; 'Only CSPF Currents (5)'}
     SCIpScaling = 0; %Shape control action scaled with (nominal or estimated) Ip {'Off (0)'; 'On with nominal Ip (1)'; 'On with estimated Ip (2)'}
     IpControlMode = 0; % Activation of Ip Control (In case of CCS, 0 non active, 1 if integrated with KCURR, 2 if integrated with Shape control, In case of VCS 0 non active, 1 active).
+
+    AllocatorMode = 0; 
     
     % Exchange period with the plant (s), the sample time of the CODAC_input, MATLAB
     % Function and Output blocks of the Simulink model: setting in_out_msg_dt (in a case
@@ -175,8 +177,16 @@ if instance.reuse_instance()
     obj4.init;
     obj4.setup;
 
+    obj5 = VS1_allocator_obj();
+    obj5.init;
+    obj5.setup;
+
+    obj6 = pcssp_PowerSupplies_obj();
+    obj6.init;
+    obj6.setup;
+
     %% create Reference for Simulink
-    in = Simulink.SimulationInput('pcssp_KCURR_RZIp_MUSCLE3');
+    in = Simulink.SimulationInput('pcssp_controller_and_ps');
     in = in.setModelParameter('StartTime',num2str(t_start),'StopTime',num2str(t_max));
     in = in.setModelParameter('SaveOutput', 'on');
 

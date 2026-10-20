@@ -9,3 +9,4 @@ export IMAS_AL_DISABLE_VALIDATE=1
 # other controller workflows are not affected. Set to 1 / remove once NICE
 # converts voltages like currents.
 export NICE_VOLTAGE_SIGN=-1
+export MY_CONTR_VOLTAGE_ORDER=supply

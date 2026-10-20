@@ -1,4 +1,4 @@
-function [coils_current,rgeo,zgeo,zdot,ip,gaps,li3,schedulingVar_RZIp,t_out,stop_signal] = muscle_IDS_NICE_output()
+function [coils_current,rpl,zpl,ip,gaps,li3,schedulingVar_RZIp,t_out,stop_signal] = muscle_nice2control()
 
 global z_cur
 
@@ -12,21 +12,20 @@ logger = evalin('base','logger');
 
 % Holds the last accepted measurement across calls, for the output_flag=-1
 % case below (persists for the lifetime of the MATLAB session/model).
-persistent last_coils_current last_rgeo last_zgeo last_ip last_t_out last_gaps last_zdot last_zdot_t last_li3 last_schedulingVar_RZIp
+persistent last_coils_current last_rpl last_zpl last_ip last_t_out last_gaps last_li3 last_schedulingVar_RZIp finished
 % Set once nice_evo_rd sends its final message (next_timestamp=None). The
 % Stop Simulation block this feeds only halts at the end of the current
 % step, so this same function still gets called again on a later step --
 % without this guard, that call tries to receive on the now-closed port and
 % crashes with "Port ... was closed while trying to receive on it" instead
 % of the simulation stopping cleanly (confirmed live).
-persistent finished
+
 N_GAPS=62;
 li3=0;
 t_out=0;
 stop_signal=0;
-rgeo=0;
-zgeo=0;
-zdot=0;
+rpl=0;
+zpl=0;
 ip=0;
 gaps = zeros(N_GAPS,1);
 coils_current=zeros(14,1);
@@ -34,9 +33,8 @@ schedulingVar_RZIp=zeros(3,1); %time,li,elongation
 
 if isequal(finished, true)
     coils_current = last_coils_current;
-    rgeo = last_rgeo;
-    zgeo = last_zgeo;
-    zdot = last_zdot;
+    rpl = last_rpl;
+    zpl = last_zpl;
     ip = last_ip;
     gaps = last_gaps;
     schedulingVar_RZIp = last_schedulingVar_RZIp;
@@ -57,11 +55,10 @@ try
     msg_pfa = instance.receive("pf_active_in_s");
 catch ME
     if contains(ME.message, 'was closed while trying to receive')
-        logger.warning('muscle_IDS_NICE_output: peer port closed without a next_timestamp=None sentinel, stopping cleanly');
+        logger.warning('muscle_nice2control: peer port closed without a next_timestamp=None sentinel, stopping cleanly');
         coils_current = last_coils_current;
-        rgeo = last_rgeo;
-        zgeo = last_zgeo;
-        zdot = last_zdot;
+        rpl = last_rpl;
+        zpl = last_zpl;
         ip = last_ip;
         gaps = last_gaps;
         t_out = last_t_out;
@@ -94,57 +91,41 @@ pfa_flag = double(pf_active.code.output_flag);
 is_stale = (~isempty(eq_flag) && eq_flag(1) == -1) || (~isempty(pfa_flag) && pfa_flag(1) == -1);
 
 if is_stale && ~isempty(last_ip)
-    logger.warning(sprintf('muscle_IDS_NICE_output: received output_flag=-1 at t=%g, holding last valid measurement', t_out));
+    logger.warning(sprintf('muscle_nice2control: received output_flag=-1 at t=%g, holding last valid measurement', t_out));
     coils_current = last_coils_current;
-    rgeo = last_rgeo;
-    zgeo = last_zgeo;
-    zdot = last_zdot;
+    rpl = last_rpl;
+    zpl = last_zpl;
     ip = last_ip;
     gaps = last_gaps;
     li3 = last_li3;
     schedulingVar_RZIp = last_schedulingVar_RZIp;
 else
+    %NEW QUANTITIES
     ip= equilibrium.time_slice{1}.global_quantities.ip; 
-    % plasma position: the axis chosen by the setting plasma_position (init script)
     if strcmp(evalin('base','plasma_position'), 'magnetic_axis')
-        rgeo = equilibrium.time_slice{1}.global_quantities.magnetic_axis.r;
-        zgeo = equilibrium.time_slice{1}.global_quantities.magnetic_axis.z;
+        rpl = equilibrium.time_slice{1}.global_quantities.magnetic_axis.r;
+        zpl = equilibrium.time_slice{1}.global_quantities.magnetic_axis.z;
     else
-        rgeo = equilibrium.time_slice{1}.boundary.geometric_axis.r;
-        zgeo = equilibrium.time_slice{1}.boundary.geometric_axis.z;
+        rpl = equilibrium.time_slice{1}.boundary.geometric_axis.r;
+        zpl = equilibrium.time_slice{1}.boundary.geometric_axis.z;
     end
-    if isempty(last_zgeo) || isempty(last_zdot_t)
-        zdot = 0;                      
-    else
-        dt = t_out - last_zdot_t;
-        if dt > 0
-            a = (2*0.0075 - dt) / (2*0.0075 + dt);
-            b =  2 / (2*0.0075 + dt);
-            zdot = a*last_zdot + b*(zgeo - last_zgeo);
-            %zdot=(zgeo - last_zgeo)/dt
-        else
-            zdot = last_zdot;     
-        end
-    end
+
     for ii=1:length(pf_active.coil)
        coil=struct(pf_active.coil{ii});
        coils_current(ii)= coil.current.data;
     end
-    coils_current(3) = 0.5 * (coils_current(3) + coils_current(4));
     li3 = equilibrium.time_slice{1}.global_quantities.li_3;
     kappa = equilibrium.time_slice{1}.boundary.elongation;
     schedulingVar_RZIp = [t_out; li3; kappa];
 
     last_coils_current = coils_current;
-    last_rgeo = rgeo;
-    last_zgeo = zgeo;
-    last_zdot = zdot;
+    last_rpl = rpl;
+    last_zpl = zpl;
     last_ip = ip;
     last_gaps = gaps;
-    last_zdot_t = t_out;
     last_li3 = li3;
     last_schedulingVar_RZIp = schedulingVar_RZIp;
 end
 
-z_cur = zgeo;
+z_cur = zpl;
 

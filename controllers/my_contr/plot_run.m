@@ -2,11 +2,11 @@ close all
 clc
 clear
 
-run_dir  = '/home/ITER/centong/Desktop/PDSs/IMAS-PDS/cases/runs/linear_plant_controller_105073_20261018_132613';
+run_dir  = '/home/ITER/centong/Desktop/PDSs/IMAS-PDS/cases/runs/linear_plant_controller_105073_20261018_131731_Vert_VS1';
 csv_file = fullfile(run_dir, 'simulink_log.csv');
 
 [runs_dir, run_name] = fileparts(strip(run_dir, 'right', '/'));
-case_dir = fullfile(fileparts(runs_dir), regexprep(run_name, '_\d{8}_\d{6}$', ''));
+case_dir = fullfile(fileparts(runs_dir), regexprep(run_name, '_\d{8}_\d{6}.*$', ''));
 % plant outputs: out_plant (linear_plant_controller) or out_plasmaless (plasmaless_controller)
 plasmaless_dir = fullfile(run_dir, 'out_plant');
 if ~isfolder(plasmaless_dir)
@@ -102,7 +102,15 @@ for k = 1:11
     title(circ_names{k}); xlabel('t [s]'); ylabel('I [kA]');
 end
 legend('measured (plant)', 'reference seen by KCURR', 'F\_INIT slices', 'Location', 'best');
-% 
+%VS3 coils (not in KCURR): VS3U, -VS3L and the circuit current (I_U - I_L)/2 seen by VS
+nexttile
+Iu = pfa.coil_current(:, 13); Il = pfa.coil_current(:, 14);
+plot(pfa.time, Iu / 1e3, 'b', pfa.time, -Il / 1e3, 'm', pfa.time, (Iu - Il) / 2e3, '--'); hold on
+plot(ref.time, ref.coil_current(:, 13) / 1e3, 'ko', 'MarkerSize', 4);
+xlim([t_csv(1) t_csv(end)]); grid on
+title('VS3'); xlabel('t [s]'); ylabel('I [kA]');
+legend('VS3U', '-VS3L', '(I_U - I_L)/2', 'F\_INIT VS3U', 'Location', 'best');
+
 % % ===== 2) KCURR current error vs the P-only prediction =====
 % figure('Name', 'KCURR current error');
 % tiledlayout(3, 4, 'TileSpacing', 'compact');
@@ -134,7 +142,7 @@ for k = 1:14
     title(coil_names{k}); xlabel('t [s]'); ylabel('V [V]');
 end
 legend('sent by controller (per coil)', 'DINA reference (F\_INIT)', 'limit', 'Location', 'best');
-
+% 
 % % ===== 4) Series (CS1) and anti-series (VS3) pairs in the plant =====
 % % In ITER CS1U+CS1L are one series circuit and VS3U/VS3L one anti-series circuit; the
 % % plasmaless model drives each coil with its own voltage, so these pairs are not forced.

@@ -31,11 +31,11 @@ settings:
     # - keep in_out_msg_dt equal to plant.dt and plant.t_interval
     # - when running VS control use dt = 0.001, if only KCURR dt=0.002 is fine
     # - the options for plasma position are magnetic_axis and geometric_axis
-  magnetic_controller.KCURR: 1
+  magnetic_controller.KCURR: 0
   magnetic_controller.control_Ip: 0
   magnetic_controller.RZIp: 0
   magnetic_controller.VS: 1
-  magnetic_controller.VS_control_mode: 3  #{'Off (0)'; 'VS1 (1)'; 'VS3 (2)'; 'VS1+VS3 (3)'}
+  magnetic_controller.VS_control_mode: 1  #{'Off (0)'; 'VS1 (1)'; 'VS3 (2)'; 'VS1+VS3 (3)'}
   magnetic_controller.in_out_msg_dt: 0.001
   magnetic_controller.plasma_position: 'magnetic_axis'
   
