@@ -39,6 +39,7 @@ pfa_signals = {
 ref_signals = {
     'coil_current', '/pf_active/coil[]&current&data'
     'coil_voltage', '/pf_active/coil[]&voltage&data'
+    'coil_names', '/pf_active/coil[]&name'
 };
 
 ctrl_signals = {
@@ -57,15 +58,17 @@ ctrl = read_h5_signals(ctrl_file, '/pf_active/time',   ctrl_signals);
 ppas = read_h5_signals(ppas_file, '/pf_passive/time',  ppas_signals);
 
 if abs(csv_ctrl.time(end) - pfa.time(end)) > 0.01
-    warning('sim_log.csv ends at t = %.3f s but the run at %.3f s: it is from another run', ...
+    warning('simulink_log.csv ends at t = %.3f s but the run at %.3f s: it is from another run', ...
         csv_ctrl.time(end), pfa.time(end));
 end
 
 % ===== Constants =====
 circ_names = {'CS3U','CS2U','CS1','CS2L','CS3L','PF1','PF2','PF3','PF4','PF5','PF6'};
 idx11 = [1 2 3 5 6 7 8 9 10 11 12];   
-coil_names = cellstr(string(pfa.coil_names));   % 14 pf_active coils: ... PF6 VS3U VS3L
-vlim_coil = [2100 2100 2100 2100 2100 2100 2100 3150 3150 3150 3150 2100 1200 1200];
+% the 14 voltages sent by the controller are power-supply voltages, coil{k}.voltage = supply k
+% (controller_output_preprocess); limits: voltage_limit_max of pf_active.supply in the F_INIT entry
+supply_names = {'CS3U','CS2U','CS1U','CS1L','CS2L','CS3L','PF1','PF2','PF3','PF4','PF5','VS1','PF6','VS3'};
+vlim_supply = [2100 2100 2100 2100 2100 2100 2100 3150 3150 3150 3150 6300 2100 2400];
 tau = 0.1;
 
 t_csv = csv_ctrl.time;
@@ -127,21 +130,36 @@ legend('VS3U', '-VS3L', '(I_U - I_L)/2', 'F\_INIT VS3U', 'Location', 'best');
 % plot(t_csv, sqrt(mean(csv_ctrl.KCURR_CSPF_ctrl_e .^ 2, 2))); grid on
 % title('RMS over the 11 circuits'); xlabel('t [s]'); ylabel('[A]');
 % 
-% ===== 3) Voltages sent per coil vs limits and DINA reference =====
-% The DINA voltages are instantaneous values at the 19 slices and include the VS1
-% action (PF2+PF3-PF4-PF5, about +-1 kV) and the plasma: compare orders of magnitude
-% and signs, not values.
-figure('Name', 'Coil voltages');
+% ===== 3) Power-supply voltages sent by the controller vs limits and F_INIT reference =====
+% coil{k}.voltage of out_controller is the voltage of power supply k. The F_INIT entry has
+% coil voltages only: the reference of a supply is the coil of the same name, V(VS3L) -
+% V(VS3U) for VS3 (anti-series pair) and none for VS1 (in series with PF2..PF5). They are
+% instantaneous values at the slices and the PF2..PF5 coil voltages include the VS1 action
+% (about +-1 kV) and the plasma: compare orders of magnitude and signs, not values.
+ref_coil_names = cellstr(string(ref.coil_names));
+ref_supply_voltage = nan(numel(ref.time), numel(supply_names));
+for k = 1:numel(supply_names)
+    switch supply_names{k}
+        case 'VS1'
+            % no coil of its own
+        case 'VS3'
+            ref_supply_voltage(:, k) = ref.coil_voltage(:, strcmp(ref_coil_names, 'VS3L')) ...
+                - ref.coil_voltage(:, strcmp(ref_coil_names, 'VS3U'));
+        otherwise
+            ref_supply_voltage(:, k) = ref.coil_voltage(:, strcmp(ref_coil_names, supply_names{k}));
+    end
+end
+figure('Name', 'Power-supply voltages');
 tiledlayout(4, 4, 'TileSpacing', 'compact');
-for k = 1:14
+for k = 1:numel(supply_names)
     nexttile
     plot(ctrl.time, ctrl.coil_voltage(:, k), 'b'); hold on
-    plot(ref.time, ref.coil_voltage(:, k), 'ko', 'MarkerSize', 4);
-    %yline([-1 1] * vlim_coil(k), 'r--');
+    plot(ref.time, ref_supply_voltage(:, k), 'ko', 'MarkerSize', 4);
+    yline([-1 1] * vlim_supply(k), 'r--');
     xlim([ctrl.time(1) ctrl.time(end)]); grid on
-    title(coil_names{k}); xlabel('t [s]'); ylabel('V [V]');
+    title(supply_names{k}); xlabel('t [s]'); ylabel('V [V]');
 end
-legend('sent by controller (per coil)', 'DINA reference (F\_INIT)', 'limit', 'Location', 'best');
+legend('sent by controller', 'F\_INIT reference (from coil voltages)', 'limit', 'Location', 'best');
 % 
 % % ===== 4) Series (CS1) and anti-series (VS3) pairs in the plant =====
 % % In ITER CS1U+CS1L are one series circuit and VS3U/VS3L one anti-series circuit; the

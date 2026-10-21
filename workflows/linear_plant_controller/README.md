@@ -6,13 +6,13 @@ linear plant model.
 ```
 source ──► plant (plasmaless actor + linear model) ──► magnetic_controller (my_contr)
               ▲                                                │
-              └──────────────── coil voltages ─────────────────┘
+              └──────────── power-supply voltages ─────────────┘
 ```
 
 - `source` sends the initial equilibrium and coil currents (built by `preprocess.sh`).
 - `plant` integrates the chosen linear model and returns equilibrium (Ip, magnetic axis),
   coil and passive currents.
-- `magnetic_controller` returns the 14 coil voltages.
+- `magnetic_controller` returns the 14 power-supply voltages.
 
 The available models and their limits are listed in
 `local_installs/plasmaless-tokamak-circuits/linear_models/README.md`.
@@ -30,14 +30,14 @@ The available models and their limits are listed in
 # create the case (runs the preprocess; MATLAB, so on a compute node)
 bin/pds-create-case linear_plant_controller 105073
 # run it, optionally with overlays for one-off changes
-sbatch bin/pds-run-case.sbatch cases linear_plant_controller_105073
+sbatch bin/pds-run-case.sbatch cases/linear_plant_controller_105073
 ```
 
 ## Main settings (per shot, in the case override)
 
 | Setting | Meaning |
 |---|---|
-| `plant.linear_model_dir` | model folder (see the models README); empty = plasmaless circuit model |
+| `plant.linear_model_dir` | model folder (see the models README) |
 | `plant.operating_point` | `descriptor` (model's linearisation point) or `f_init` (run's initial state) |
 | `source.t_min`, `source.t_max` | time window of the initial state; the run starts at the first slice in it |
 | `plant.t_end` | end of the run |
@@ -58,5 +58,8 @@ sbatch bin/pds-run-case.sbatch cases linear_plant_controller_105073
 
 ## Good to know
 
-- `env.sh` sets `MY_CONTR_VOLTAGE_ORDER=coil`: in this workflow `my_contr` writes the
-  voltages in coil order, as the plasmaless actor expects.
+- `my_contr` sends the 14 power-supply voltages (`coil{k}.voltage` = supply k, order
+  `CS3U CS2U CS1U CS1L CS2L CS3L PF1..PF5 VS1 PF6 VS3`), the inputs of every linear
+  model. Every model has the ITER circuits inside (CS1U/CS1L in series, VS3U/VS3L in
+  anti-series) and returns the 14 coil currents, as NICE; `plasmaless_model` is the
+  plasma-free one.

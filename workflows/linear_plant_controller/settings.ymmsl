@@ -26,23 +26,12 @@ settings:
   plant.t_interval: 0.002
   magnetic_controller.in_out_msg_dt: 0.002
 
-  # Plant model, set per shot in the case override (linear_models/README.md):
-  # - plant.linear_model_dir: a folder of linear_models/ (linear_model.json + continuous
-  #   A, B, C matrices, discretised by the plant with plant.dt): plasmaless_md_dd4,
-  #   niceSimpleLin_105073_t84.4176, niceLin_105073_t84.4176; empty = the plasmaless
-  #   circuit model built by the actor itself;
-  # - plant.operating_point (models in deviation coordinates, i.e. the NICE models):
-  #   descriptor (default) = start from the model's linearisation point; f_init = start
-  #   from the F_INIT values at t0, scenario voltages included 
-  # Machine description: the actor's default (data/md_dd4 of the plasmaless repository);
-  # set plant.md_uri to use another entry.
-
   # Controller my_contr (controllers/my_contr/muscle_controller_NICE_IMAS_iter_init.m):
   # 1 = on, 0 = off; change them in the case override.
   magnetic_controller.KCURR: 1            # CS/PF coil-current controller
   magnetic_controller.control_Ip: 0       # Ip control inside KCURR
   magnetic_controller.RZIp: 0             # R, Z, Ip controller
-  magnetic_controller.VS: 0               # vertical stabilisation (needed with niceLin)
+  magnetic_controller.VS: 0               # vertical stabilisation (needed with the unstable models)
   magnetic_controller.VS_control_mode: 2  # VS actuator: 1 VS1, 2 VS3, 3 VS1+VS3
   magnetic_controller.Shape_control: 0    # Shape-Ip control mode, 0 = off
   # Plasma position read by the controller (measurement and R/Z references): the linear

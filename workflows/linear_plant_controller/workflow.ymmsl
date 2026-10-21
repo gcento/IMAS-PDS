@@ -1,7 +1,7 @@
 ymmsl_version: v0.2
-# plasmaless_controller with my_contr as controller and a choice of plant model: the
-# plasmaless coil+vessel circuit model (no plasma) or a NICE linear model of
-# linear_models/ (niceSimpleLin, niceLin), selected by plant.linear_model_dir in
+# plasmaless_controller with my_contr as controller and a linear plant model of
+# local_installs/plasmaless-tokamak-circuits/linear_models/ (vertical_circuit,
+# niceSimpleLin, niceLin, plasmaless_model), selected by plant.linear_model_dir in
 # cases/overrides/linear_plant_controller_<shot>.ymmsl (linear_models/README.md).
 # The plant is the plasmaless actor for every model (implementation plasmaless,
 # lib/local_programs.ymmsl), with nice_evo_rd's ports and timing; the wiring is that of
@@ -9,8 +9,9 @@ ymmsl_version: v0.2
 # (plasmaless -> plant, recorder_plasmaless -> recorder_plant).
 #
 # magnetic_controller is the local one (lib/local_programs.ymmsl, controllers/my_contr).
-# my_contr writes its voltages in coil order, the order the plasmaless actor reads
-# (env.sh: MY_CONTR_VOLTAGE_ORDER=coil).
+# my_contr sends the 14 power-supply voltages (coil{k}.voltage = supply k), the inputs of
+# the linear models; every model has the ITER circuits inside and returns the 14 coil
+# currents, as NICE.
 #
 # Settings come from workflows/linear_plant_controller/settings.ymmsl
 

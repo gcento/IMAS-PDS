@@ -125,7 +125,7 @@ if instance.reuse_instance()
     Rpl_ref = timeseries(rgeo_ref,equilibrium.time);
     Zpl_ref = timeseries(zgeo_ref,equilibrium.time);
     Gaps_ref = timeseries(gaps_ref, equilibrium.time);
-    CSPF_curr_ref = timeseries(reference_current,equilibrium.time)
+    CSPF_curr_ref = timeseries(reference_current,equilibrium.time);
 
     
 
@@ -148,7 +148,7 @@ if instance.reuse_instance()
     SCIpScaling = 0; %Shape control action scaled with (nominal or estimated) Ip {'Off (0)'; 'On with nominal Ip (1)'; 'On with estimated Ip (2)'}
     IpControlMode = 0; % Activation of Ip Control (In case of CCS, 0 non active, 1 if integrated with KCURR, 2 if integrated with Shape control, In case of VCS 0 non active, 1 active).
 
-    AllocatorMode = 0; 
+    AllocatorMode = 1; 
     
     % Exchange period with the plant (s), the sample time of the CODAC_input, MATLAB
     % Function and Output blocks of the Simulink model: setting in_out_msg_dt (in a case
@@ -185,6 +185,31 @@ if instance.reuse_instance()
     obj6.init;
     obj6.setup;
 
+    % Data dictionary of the top model: the KCURR one it used so far, the power-supply one
+    % (bus objects pcssp_PS_* of the PowerSupplies ports, created by obj6.init) and the base
+    % workspace (the variables of this script). Created next to the model the first time,
+    % then only checked; the model is linked to it here, before the simulation.
+    top_dd_file = fullfile(fileparts(which('pcssp_controller_and_ps.slx')), 'pcssp_controller_and_ps.sldd');
+    if isfile(top_dd_file)
+        top_dd = Simulink.data.dictionary.open(top_dd_file);
+    else
+        top_dd = Simulink.data.dictionary.create(top_dd_file);
+    end
+    if ~top_dd.EnableAccessToBaseWorkspace
+        top_dd.EnableAccessToBaseWorkspace = true;
+    end
+    for dd_source = {'pcssp_KCURR_PFPO1.sldd', 'pcssp_PowerSupplies.sldd'}
+        if ~any(strcmp(top_dd.DataSources, dd_source{1}))
+            addDataSource(top_dd, dd_source{1});
+        end
+    end
+    if top_dd.HasUnsavedChanges
+        saveChanges(top_dd);
+    end
+    close(top_dd);
+    load_system('pcssp_controller_and_ps');
+    set_param('pcssp_controller_and_ps', 'DataDictionary', 'pcssp_controller_and_ps.sldd');
+
     %% create Reference for Simulink
     in = Simulink.SimulationInput('pcssp_controller_and_ps');
     in = in.setModelParameter('StartTime',num2str(t_start),'StopTime',num2str(t_max));
@@ -205,7 +230,7 @@ if instance.reuse_instance()
                 'VS_VS3_cmd',1;
                     'Shape_CSPF_curr_cmd',11;
                     'Shape_VS_decoupling',11;
-                'Output_total',13;
+                'Output_total',14;
                     'CSPF_curr_ref',11;
                     'Zdot',1;
                     'Ip_ref',1;
@@ -230,7 +255,7 @@ if instance.reuse_instance()
 
     tic;
     logs = sim(in);
-    close_system('pcssp_KCURR_RZIp_MUSCLE3',0);
+    close_system('pcssp_controller_and_ps',0);
     simulation_time=toc;
     plasma_duration=t_max-t_start;
 
