@@ -8,12 +8,12 @@ ymmsl_version: v0.2
 # value here. 
 
 settings:
-  # Initial state: built once by preprocess.sh, which runs plasmaless_controller's
-  # preprocess: NICE inverse equilibrium and pf_active of preprocess.source_uri (default:
-  # out_nice of a completed inverse_convergence run for the same shot), window
-  # source.t_min/t_max, written to ${CASE_DIR}/preprocess/initial_state (see
-  # workflows/plasmaless_controller/settings.ymmsl). The run starts at the first time of
-  # the window (t0); the controller takes its references from the same entry.
+  # Initial state: built once by preprocess.sh (with waveforms.yaml of this folder) at
+  # case creation: NICE inverse equilibrium and pf_active of preprocess.source_uri
+  # (default: out_nice of a completed inverse_convergence run for the same shot), window
+  # source.t_min/t_max, written to ${CASE_DIR}/preprocess/initial_state. The run starts at
+  # the first time of the window (t0); the controller takes its references from the same
+  # entry.
   preprocess.source_uri: "imas:hdf5?path=${PDS_REPO}/cases/runs/inverse_convergence_${SHOT}/out_nice"
   source.source_uri: "imas:hdf5?path=${CASE_DIR}/preprocess/initial_state"
   source.iterative: False
@@ -48,6 +48,6 @@ settings:
 
   # Live figures (m3dash): coil currents, passive currents and applied coil voltages; the
   # recorder writes Zarr stores under <run_dir>/instances/recorder_plant/workdir/<port>/.
-  recorder_plant.config: ${PDS_REPO}/visualization/plasmaless_currents.py
+  recorder_plant.config: ${PDS_REPO}/visualization/linear_model_currents.py
 
   muscle_remote_log_level: 'INFO'

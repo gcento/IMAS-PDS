@@ -4,7 +4,7 @@ Runs the magnetic controller `my_contr` (`controllers/my_contr`) in closed loop 
 linear plant model.
 
 ```
-source ──► plant (plasmaless actor + linear model) ──► magnetic_controller (my_contr)
+source ──► plant (linear_model actor) ──► magnetic_controller (my_contr)
               ▲                                                │
               └──────────── power-supply voltages ─────────────┘
 ```
@@ -17,12 +17,18 @@ source ──► plant (plasmaless actor + linear model) ──► magnetic_cont
 The available models and their limits are listed in
 `local_installs/plasmaless-tokamak-circuits/linear_models/README.md`.
 
+To try a model alone before a closed-loop run, use
+`local_installs/plasmaless-tokamak-circuits/utils/run_supply_sequence.m`. It gives the
+open-loop response of the 12 circuit currents to a voltage on each power supply in turn,
+for one or more models. To build a model for another shot or time, see
+`generators/README.md` of the same repository (launchers in its `utils/`).
+
 ## Before the first run
 
 - Run `inverse_convergence` for the same shot. Its `out_nice` gives the initial state and
   the controller references (`preprocess.source_uri`).
-- The plasmaless actor must be on branch `IMAS_Muscle3`
-  (`local_installs/plasmaless-tokamak-circuits`).
+- The `linear_model` actor comes from `local_installs/plasmaless-tokamak-circuits`,
+  branch `IMAS_Muscle3` (`setup_files/setup_plasmaless.sh`).
 
 ## Running
 

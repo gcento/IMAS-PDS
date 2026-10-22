@@ -1,4 +1,4 @@
-"""Build plasmaless_controller's initial state once, outside the MUSCLE3 workflow.
+"""Build linear_plant_controller's initial state once, outside the MUSCLE3 workflow.
 
 Replaces the former in-workflow chain `source` -> `waveform_editor` (run by
 preprocess.sh at case creation). It makes exactly the calls those two actors made:

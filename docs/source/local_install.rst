@@ -94,7 +94,7 @@ be run directly from inside ``run/``. Each clones its tool and builds it into
    * - ``setup_plasmaless.sh``
      - ``local_installs/plasmaless-tokamak-circuits/``
      - MATLAB, clone only, on branch ``IMAS_Muscle3`` (``BRANCH_PLASMALESS``; a tag
-       or commit may be set there to pin a version). The ``plasmaless`` actor of ``plasmaless_controller`` runs from here.
+       or commit may be set there to pin a version). The ``linear_model`` actor of ``linear_plant_controller`` runs from here.
 
 .. important::
 
@@ -118,9 +118,8 @@ definitions live in two files:
 
 ``workflows/lib/local_programs.ymmsl``
   The same programs as shell scripts activating the corresponding ``run/<Tool>/venv``.
-  The from-source counterpart. ``plasmaless``, which has no EasyBuild module, is defined
-  only here and ``plasmaless_controller`` imports it from this file (its other actors
-  still come from ``easybuild_programs.ymmsl``).
+  The from-source counterpart. ``linear_model``, which has no EasyBuild module, is
+  defined only here, and ``linear_plant_controller`` imports it from this file.
 
 To run against your build, repoint the import in the workflow:
 

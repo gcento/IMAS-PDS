@@ -184,7 +184,7 @@ programs:
   # variable". `export` lines in a script:, like every actor above, are expanded in the
   # actor's own shell instead, so $PDS_REPO resolves correctly.
   # MATLAB's Python is the muscle3 venv of the PCS module ($EBROOTPCS/muscle3_venv: muscle3
-  # 0.10.0 + ymmsl 0.17.0), as for plasmaless below. NOT local_installs/IMAS-MUSCLE3/venv:
+  # 0.10.0 + ymmsl 0.17.0), as for linear_model below. NOT local_installs/IMAS-MUSCLE3/venv:
   # ymmsl2svg pins ymmsl to a git branch, so that venv has ymmsl 0.17.1.dev0 without
   # Operator.NONE, and libmuscle.Instance() fails there with "AttributeError: NONE"
   # (mmsf_validator). The controller needs no imas_muscle3. PCS_PATH and SCDDS_COREPATH are
@@ -203,14 +203,15 @@ programs:
       export CONTROLLER_PATH=$PDS_REPO/controllers/my_contr
       export SCDDS_COREPATH=$PDS_REPO/local_installs/pcs/pcssp/scdds
       exec matlab -batch "try; pyenv('Version','$EBROOTPCS/muscle3_venv/bin/python','ExecutionMode','InProcess'); addpath(getenv('PCS_PATH')); run('$PDS_REPO/local_installs/nice/runmatlab/initNice4matlab.m'); pcssp_pcs_add_paths; comparisons.ExternalSCMLink.setupGitConfig(); addpath(getenv('CONTROLLER_PATH')); run(fullfile(getenv('CONTROLLER_PATH'),'muscle_controller_NICE_IMAS_iter_init.m')); catch ME; disp(getReport(ME)); exit(1); end"
-  # Plasmaless coil+vessel model (no plasma), a stand-in for nice_evo_rd in controller
-  # tests (workflows/plasmaless_controller, which imports it from here). MATLAB, no
-  # EasyBuild module: the actor (muscle3/muscle_plasmaless_actor.m) runs from the
-  # checkout $PDS_REPO/local_installs/plasmaless-tokamak-circuits, made at a pinned
-  # commit by setup_files/setup_plasmaless.sh (pds_setup.sh, INSTALL_PLASMALESS). The
-  # actor finds imas_model/ and its default machine description data/md_dd4/ next to its
-  # own file, so they come from the same checkout. Developers can point PLASMALESS_REPO
-  # at their own clone to override it (optional; unset = local_installs).
+  # Linear plant models (plasma-free circuits, vertical model, NICE linearisations), a
+  # stand-in for nice_evo_rd in controller tests (workflow linear_plant_controller, which
+  # imports it from here). MATLAB, no EasyBuild module: the actor
+  # (muscle3/muscle_linear_model_actor.m) runs from the checkout
+  # $PDS_REPO/local_installs/plasmaless-tokamak-circuits, made at a pinned commit by
+  # setup_files/setup_plasmaless.sh (pds_setup.sh, INSTALL_PLASMALESS). The actor finds
+  # plant/ and its default machine description data/md_dd4/ next to its own file, so they
+  # come from the same checkout. Developers can point LINEAR_MODEL_REPO at their own clone
+  # to override it (optional; unset = local_installs).
   # The path is captured before `module purge`, which can take $PDS_REPO out with the PDS
   # module. PCS is loaded only for its muscle3 venv ($EBROOTPCS/muscle3_venv),
   # IMAS-MATLAB for the IMAS MATLAB API; `unset PYTHONPATH` as for the other actors.
@@ -220,18 +221,18 @@ programs:
   # exit: MATLAB R2025b segfaults on exit (exit code 137) in any session that read an
   # imas:hdf5 entry through IMAS-MATLAB/5.6.0 (reproduced with imas_open/ids_get/
   # imas_close alone, without MUSCLE3), and the manager would report the run as failed.
-  plasmaless:
+  linear_model:
     script: |
       #!/bin/bash
-      plasmaless_repo="${PLASMALESS_REPO:-$PDS_REPO/local_installs/plasmaless-tokamak-circuits}"
-      if [[ ! -f "$plasmaless_repo/muscle3/muscle_plasmaless_actor.m" ]]; then
-        echo "plasmaless: no muscle3/muscle_plasmaless_actor.m in '$plasmaless_repo'" \
-          "-- run setup_files/setup_plasmaless.sh (pds_setup.sh) or set PLASMALESS_REPO" >&2
+      repo="${LINEAR_MODEL_REPO:-$PDS_REPO/local_installs/plasmaless-tokamak-circuits}"
+      if [[ ! -f "$repo/muscle3/muscle_linear_model_actor.m" ]]; then
+        echo "linear_model: no muscle3/muscle_linear_model_actor.m in '$repo'" \
+          "-- run setup_files/setup_plasmaless.sh (pds_setup.sh) or set LINEAR_MODEL_REPO" >&2
         exit 1
       fi
-      echo "plasmaless: actor from $plasmaless_repo"
+      echo "linear_model: actor from $repo"
       module purge
       module load PCS/2026.08-pds
       module load IMAS-MATLAB/5.6.0-intel-2025b-DD-4.1.1
       unset PYTHONPATH
-      exec matlab -singleCompThread -batch "pyenv('Version','$EBROOTPCS/muscle3_venv/bin/python','ExecutionMode','InProcess');addpath('$plasmaless_repo/muscle3');muscle_plasmaless_actor;pyrun('import os; os._exit(0)');"
+      exec matlab -singleCompThread -batch "pyenv('Version','$EBROOTPCS/muscle3_venv/bin/python','ExecutionMode','InProcess');addpath('$repo/muscle3');muscle_linear_model_actor;pyrun('import os; os._exit(0)');"

@@ -157,7 +157,8 @@ CURR_INSTALL='START'
     echo "Skipping PCS"
   fi
 
-  # SET UP PLASMALESS (MATLAB coil+vessel model, actor of workflows/plasmaless_controller)
+  # SET UP PLASMALESS (MATLAB linear plant models, linear_model actor of
+  # workflows/linear_plant_controller)
   CURR_INSTALL='PLASMALESS'
   PLASMALESS_URL="https://github.com/gcento/plasma-tokamak-circuits.git"
   if [ "$INSTALL_PLASMALESS" = "true" ] \

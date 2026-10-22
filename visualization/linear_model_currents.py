@@ -1,16 +1,19 @@
 """
-Plasmaless coil + vessel model (plasmaless_controller workflow), same panels as
-plot_plasmaless_imas.m of the plasmaless repository:
+Plant of linear_plant_controller (linear_model actor, muscle_linear_model_actor.m of
+local_installs/plasmaless-tokamak-circuits):
 - (a) CS/PF superconducting coil currents [A] (pf_active.coil(:).current)
 - (b) VS resistive coil currents [kA] (coils whose name starts with "VS")
 - (c) passive loop currents [kA] (pf_passive.loop(:).current)
-plus the coil voltages carried by the same pf_active messages:
-- (d) CS/PF and (e) VS coil voltages [V]. The plasmaless actor echoes the voltages
-  it applied over the step ending at the message time, i.e. the controller's
-  command of the previous exchange (the scenario voltage at t0 for the first step).
+plus the voltages carried by the same pf_active messages:
+- (d) CS/PF and (e) VS (VS1, VS3) power-supply voltages [V]. The actor echoes the 14
+  power-supply voltages in the coil slots (coil{k}.voltage = supply k, order SUPPLIES),
+  so they are labelled with the supply names, not with the coil names of their slots
+  (slots 12-14 hold VS1, PF6, VS3, the coils PF6, VS3U, VS3L). They were applied over
+  the step ending at the message time: the controller's command of the previous
+  exchange (the operating-point voltages, zero by default, for the first step).
 
 Recorder ports: pf_active_in and pf_passive_in, wired as extra receivers on
-plasmaless.pf_active_o_i and plasmaless.pf_passive_o_i (one slice per message).
+plant.pf_active_o_i and plant.pf_passive_o_i (one slice per message).
 """
 
 import logging
@@ -27,6 +30,9 @@ logger = logging.getLogger()
 
 _HEIGHT = 260
 _WIDTH = 900
+# power supplies in the order of the voltages in pf_active (coil{k}.voltage = supply k)
+SUPPLIES = ["CS3U", "CS2U", "CS1U", "CS1L", "CS2L", "CS3L", "PF1", "PF2", "PF3", "PF4",
+            "PF5", "VS1", "PF6", "VS3"]
 
 
 def _series(values, ntime):
@@ -61,12 +67,14 @@ class State(BaseState):
         current = np.array([_series(c.current.data, time.size) for c in ids.coil])
         voltage = np.array([_series(c.voltage.data, time.size) for c in ids.coil])
         names = np.array([str(c.name) for c in ids.coil])
+        # voltages by power supply (by coil only if the slots are not the 14 supplies)
+        supplies = SUPPLIES if len(ids.coil) == len(SUPPLIES) else names
         new = xr.Dataset(
             {
                 "current": (("time", "coil"), current.T),
-                "voltage": (("time", "coil"), voltage.T),
+                "voltage": (("time", "supply"), voltage.T),
             },
-            coords={"time": time, "coil": names},
+            coords={"time": time, "coil": names, "supply": supplies},
         )
         self.data["pf_active"] = _append(self.data.get("pf_active"), new)
 
@@ -94,29 +102,32 @@ class Plotter(BasePlotter):
             hv.DynamicMap(self.plot_vs_voltages),
         )
 
-    def _pf_active_until_now(self, vs):
-        """(time, values, names) of the selected coils, up to the slider time."""
+    def _pf_active_until_now(self, var, dim, vs):
+        """(time, values, names) of var for the VS or the other entries of dim ("coil"
+        or "supply"), up to the slider time; None before the first message."""
         state = self.active_state.data.get("pf_active")
         if state is None:
             return None
-        names = [str(n) for n in state.coil.values]
+        names = [str(n) for n in state[dim].values]
         idx = [i for i, n in enumerate(names) if n.upper().startswith("VS") == vs]
+        if not idx:
+            return None
         mask = (state.time <= self.time).values
-        return state.time.values[mask], state.isel(coil=idx, time=mask), names, idx
+        data = state[var].isel({dim: idx, "time": mask}).transpose("time", dim)
+        return state.time.values[mask], data.values, [names[i] for i in idx]
 
-    def _coil_overlay(self, title, var, ylabel, scale, vs):
-        selected = self._pf_active_until_now(vs)
-        if selected is None or not selected[3]:
+    def _overlay(self, title, var, dim, ylabel, scale, vs):
+        selected = self._pf_active_until_now(var, dim, vs)
+        if selected is None:
             return hv.NdOverlay(
-                {"": hv.Curve(([0.0], [0.0]), "Time [s]", ylabel)}, kdims="coil"
+                {"": hv.Curve(([0.0], [0.0]), "Time [s]", ylabel)}, kdims=dim
             ).opts(title="Waiting for data...", height=_HEIGHT, width=_WIDTH)
-        time, data, names, idx = selected
-        values = data[var].values / scale
+        time, values, names = selected
         curves = {
-            names[i]: hv.Curve((time, values[:, k]), "Time [s]", ylabel)
-            for k, i in enumerate(idx)
+            name: hv.Curve((time, values[:, k] / scale), "Time [s]", ylabel)
+            for k, name in enumerate(names)
         }
-        return hv.NdOverlay(curves, kdims="coil", sort=False).opts(
+        return hv.NdOverlay(curves, kdims=dim, sort=False).opts(
             title=title,
             framewise=True,
             height=_HEIGHT,
@@ -126,9 +137,10 @@ class Plotter(BasePlotter):
 
     @param.depends("time")
     def plot_sc_currents(self):
-        return self._coil_overlay(
+        return self._overlay(
             "(a) CS/PF superconducting coil currents",
             "current",
+            "coil",
             "Current [A]",
             1.0,
             False,
@@ -136,15 +148,21 @@ class Plotter(BasePlotter):
 
     @param.depends("time")
     def plot_vs_currents(self):
-        return self._coil_overlay(
-            "(b) VS resistive coil currents", "current", "Current [kA]", 1e3, True
+        return self._overlay(
+            "(b) VS resistive coil currents",
+            "current",
+            "coil",
+            "Current [kA]",
+            1e3,
+            True,
         )
 
     @param.depends("time")
     def plot_sc_voltages(self):
-        return self._coil_overlay(
-            "(d) CS/PF coil voltages (applied over the preceding step)",
+        return self._overlay(
+            "(d) CS/PF power-supply voltages (applied over the preceding step)",
             "voltage",
+            "supply",
             "Voltage [V]",
             1.0,
             False,
@@ -152,9 +170,10 @@ class Plotter(BasePlotter):
 
     @param.depends("time")
     def plot_vs_voltages(self):
-        return self._coil_overlay(
-            "(e) VS coil voltages (applied over the preceding step)",
+        return self._overlay(
+            "(e) VS1 and VS3 power-supply voltages (applied over the preceding step)",
             "voltage",
+            "supply",
             "Voltage [V]",
             1.0,
             True,

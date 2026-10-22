@@ -7,15 +7,11 @@ csv_file = fullfile(run_dir, 'simulink_log.csv');
 
 [runs_dir, run_name] = fileparts(strip(run_dir, 'right', '/'));
 case_dir = fullfile(fileparts(runs_dir), regexprep(run_name, '_\d{8}_\d{6}.*$', ''));
-% plant outputs: out_plant (linear_plant_controller) or out_plasmaless (plasmaless_controller)
-plasmaless_dir = fullfile(run_dir, 'out_plant');
-if ~isfolder(plasmaless_dir)
-    plasmaless_dir = fullfile(run_dir, 'out_plasmaless');
-end
+plant_dir = fullfile(run_dir, 'out_plant');               % plant outputs
 
-eq_file   = fullfile(plasmaless_dir, 'equilibrium.h5');
-pfa_file  = fullfile(plasmaless_dir, 'pf_active.h5');      % plant: measured coil currents
-ppas_file = fullfile(plasmaless_dir, 'pf_passive.h5');     % plant: vessel loop currents
+eq_file   = fullfile(plant_dir, 'equilibrium.h5');
+pfa_file  = fullfile(plant_dir, 'pf_active.h5');      % plant: measured coil currents
+ppas_file = fullfile(plant_dir, 'pf_passive.h5');     % plant: vessel loop currents
 ctrl_file = fullfile(run_dir, 'out_controller', 'pf_active.h5');   % voltages sent by the controller
 
 ref_file  = fullfile(case_dir, 'preprocess', 'initial_state', 'pf_active.h5');

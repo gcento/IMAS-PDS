@@ -4,11 +4,10 @@ ymmsl_version: v0.2
 # linear_models/plasmaless_model, the plasma-free circuit model: an absolute model started
 # from the F_INIT coil currents projected on the circuits (plant.operating_point does not
 # apply).
-# Initial state: the metis_nice_inverse_from_dina run of 105084 (nice_out), as
-# plasmaless_controller_105084; remove the preprocess.source_uri line to use an
-# inverse_convergence run of 105084 instead (the workflow default). Flattop window 136.0 to
-# 256.0 s, t0 = 136.2276 s; plant.t_end 140.0: about 1,900 exchanges at dt 0.002
-# (plasmaless_controller_105084 runs to 160.0 s at dt 0.005, about 12,000 exchanges at 0.002).
+# Initial state: the metis_nice_inverse_from_dina run of 105084 (nice_out); remove the
+# preprocess.source_uri line to use an inverse_convergence run of 105084 instead (the
+# workflow default). Flattop window 136.0 to 256.0 s, t0 = 136.2276 s; plant.t_end 140.0:
+# about 1,900 exchanges at dt 0.002.
 settings:
   preprocess.source_uri: "imas:hdf5?path=${PDS_REPO}/cases/runs/metis_nice_inverse_from_dina_105084/nice_out"
   source.t_min: 136.0

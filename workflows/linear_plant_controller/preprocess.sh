@@ -1,8 +1,8 @@
 #!/bin/bash
 # Builds the initial state (the F_INIT equilibrium + pf_active of magnetic_controller and
-# of the plant) of plasmaless_controller and linear_plant_controller once, at case creation,
-# instead of inside every run. It replaces the former in-workflow chain source (nice_out) ->
-# waveform_editor, making the same calls (preprocess_initial_state.py) with this directory's
+# of the plant) of linear_plant_controller once, at case creation, instead of inside every
+# run. It replaces the former in-workflow chain source (nice_out) -> waveform_editor,
+# making the same calls (preprocess_initial_state.py) with this directory's
 # waveforms.yaml. Run once by bin/pds-create-case, output frozen into $CASE_DIR/preprocess/
 # (not rebuilt on every bin/pds-run-case.sbatch). See that script's header for the
 # PDS_REPO/SCENARIOS_REPO/SHOT/CASE_DIR contract.
@@ -12,14 +12,13 @@
 # Inputs, both read from this case's own workflow_settings.ymmsl + scenario_settings.ymmsl
 # (already written into $CASE_DIR by bin/pds-create-case when this runs; the override wins),
 # so each is defined in one place only:
-#  - preprocess.source_uri: the NICE inverse output the plasma and coil data come from. Each
-#    workflow's settings.ymmsl sets its default: the metis_nice_inverse_from_dina run
-#    (nice_out) for plasmaless_controller, the inverse_convergence run (out_nice) for
-#    linear_plant_controller; a case override can point at another run;
+#  - preprocess.source_uri: the NICE inverse output the plasma and coil data come from;
+#    default in settings.ymmsl: the inverse_convergence run (out_nice) of the shot; a case
+#    override can point at another run;
 #  - source.t_min/t_max: the window of that output.
 set -euo pipefail
 
-WF_DIR="$PDS_REPO/workflows/plasmaless_controller"
+WF_DIR="$PDS_REPO/workflows/linear_plant_controller"
 OUT="$CASE_DIR/preprocess"
 mkdir -p "$OUT"
 

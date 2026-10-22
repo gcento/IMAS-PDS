@@ -1,12 +1,10 @@
 ymmsl_version: v0.2
-# plasmaless_controller with my_contr as controller and a linear plant model of
+# Controller test bench: my_contr as controller and a linear plant model of
 # local_installs/plasmaless-tokamak-circuits/linear_models/ (vertical_circuit,
 # niceSimpleLin, niceLin, plasmaless_model), selected by plant.linear_model_dir in
 # cases/overrides/linear_plant_controller_<shot>.ymmsl (linear_models/README.md).
-# The plant is the plasmaless actor for every model (implementation plasmaless,
-# lib/local_programs.ymmsl), with nice_evo_rd's ports and timing; the wiring is that of
-# workflows/plasmaless_controller/workflow.ymmsl with the components renamed
-# (plasmaless -> plant, recorder_plasmaless -> recorder_plant).
+# The plant is the linear-model actor for every model (implementation linear_model,
+# lib/local_programs.ymmsl), with nice_evo_rd's ports and timing.
 #
 # magnetic_controller is the local one (lib/local_programs.ymmsl, controllers/my_contr).
 # my_contr sends the 14 power-supply voltages (coil{k}.voltage = supply k), the inputs of
@@ -19,14 +17,14 @@ imports:
 - from imas_muscle3 import implementation source_component
 - from imas_muscle3 import implementation sink_component
 - from imas_muscle3 import implementation recorder_component
-- from lib.local_programs import implementation plasmaless
+- from lib.local_programs import implementation linear_model
 - from lib.local_programs import implementation magnetic_controller
 
 models:
   linear_plant_controller:
     components:
       source:  {description: initial state (equilibrium + pf_active) built by preprocess.sh from the NICE inverse run of preprocess.source_uri, implementation: source_component, ports: {o_i: [equilibrium_out, pf_active_out]}}
-      plant: {description: linear plant model (plasmaless actor; model chosen by plant.linear_model_dir), implementation: plasmaless, ports: {f_init: [equilibrium_f_init, pf_active_f_init], s: [pf_active_s], o_i: [equilibrium_o_i, pf_active_o_i, pf_passive_o_i]}}
+      plant: {description: linear plant model (linear_model actor; model chosen by plant.linear_model_dir), implementation: linear_model, ports: {f_init: [equilibrium_f_init, pf_active_f_init], s: [pf_active_s], o_i: [equilibrium_o_i, pf_active_o_i, pf_passive_o_i]}}
       magnetic_controller: {description: PCSSP magnetic (SCDDS) controller (controllers/my_contr), implementation: magnetic_controller, ports: {f_init: [equilibrium_in_f, pf_active_in_f], s: [equilibrium_in_s, pf_active_in_s], o_i: [pf_active_out_i]}}
       sink_equilibrium: {description: sink -- plant outputs, implementation: sink_component, ports: {f_init: [equilibrium_in, pf_active_in, pf_passive_in]}}
       sink_control: {description: sink -- controller outputs, implementation: sink_component, ports: {f_init: [pf_active_in]}}
