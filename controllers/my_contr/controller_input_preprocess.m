@@ -6,7 +6,7 @@ function [Icspf,Ivs3,rpl,zpl,zdot,ip,gaps,li3,schedulingVar_RZIp] = controller_i
 %   Tustin at the actual time step (tau = 7.5 ms). The first call returns 0; a call with
 %   the same or an earlier time holds the previous value.
 
-persistent last_t last_zpl last_zdot
+persistent last_t last_zpl last_zdot last_zdot_in
 tau = 0.0075;
 
 coil_currents = coil_currents(:);
@@ -15,20 +15,34 @@ Icspf = [coil_currents(1:2); cs1mean; coil_currents(5:12)];
 Ivs3 = 0.5*(coil_currents(13) - coil_currents(14));
 
 if isempty(last_t)
-    zdot = 0;
+    zdot_in = 0;      % derivative + noise
+    zdot = 0;         % controller input
 else
     dt = t - last_t;
     if dt > 0
-        a = (2*tau - dt) / (2*tau + dt);
-        b = 2 / (2*tau + dt);
-        zdot = a*last_zdot + b*(zpl - last_zpl);
+        zdot_in = (zpl - last_zpl)/dt;                        
+        if evalin('base','zdot_disturbance')
+            c = -0.6; % Lower bound
+            d = 0.6;  % Upper bound
+            noise = sqrt(3)*(c + (d - c)*rand(1))*sqrt(0.0005/dt); %rms = 0.6m/s at dt = 0.5ms
+            zdot_in = zdot_in + noise;
+        end
+        if evalin('base','zdot_filter')                 
+            a = (2*tau - dt)/(2*tau + dt);
+            b = dt/(2*tau + dt);
+            zdot = a*last_zdot + b*(zdot_in + last_zdot_in);
+        else
+            zdot = zdot_in;
+        end
     else
+        zdot_in = last_zdot_in;
         zdot = last_zdot;
     end
 end
 
 last_t = t;
 last_zpl = zpl;
+last_zdot_in = zdot_in;
 last_zdot = zdot;
 
 if abs(ip) <= 100

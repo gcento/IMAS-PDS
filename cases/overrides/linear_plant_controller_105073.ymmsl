@@ -20,12 +20,13 @@ settings:
     #   linearization equilibrium written in linear_model.json (plant.operating_point: descriptor)
     #   or from f_init from the precomputed nice inverse equilibrium (plant.operating_point: f_init)
     # - plasmaless_model (no plasma) is absolute: it always starts from the f_init coil currents
-  plant.t_end: 86.0
+  plant.t_end: 87.0
   #plant.linear_model_dir: "${PDS_REPO}/local_installs/plasmaless-tokamak-circuits/linear_models/niceSimpleLin_105073_t84.4176"
   #plant.linear_model_dir: "${PDS_REPO}/local_installs/plasmaless-tokamak-circuits/linear_models/niceLin_105073_t84.4176"
   plant.linear_model_dir: "${PDS_REPO}/local_installs/plasmaless-tokamak-circuits/linear_models/vertical_circuit_105073_t84.3176"
   #plant.linear_model_dir: "${PDS_REPO}/local_installs/plasmaless-tokamak-circuits/linear_models/plasmaless_model"
   plant.operating_point: descriptor
+  #plant.operating_point: f_init
   plant.dt: 0.001
   plant.t_interval: 0.001
 
@@ -38,7 +39,12 @@ settings:
   magnetic_controller.RZIp: 0
   magnetic_controller.VS: 1
   magnetic_controller.VS_control_mode: 3  #{'Off (0)'; 'VS1 (1)'; 'VS3 (2)'; 'VS1+VS3 (3)'}
+  magnetic_controller.PSModel: 1
+  magnetic_controller.Allocator: 1
   magnetic_controller.in_out_msg_dt: 0.001
+  magnetic_controller.zdot_disturbance: 0
+  magnetic_controller.zdot_filter: 0
+  magnetic_controller.hold_references: 1
   magnetic_controller.plasma_position: 'magnetic_axis'
   
   

@@ -12,22 +12,22 @@
 # https://github.com/MireilleSchneider/plasmaless-tokamak-circuits/tree/IMAS_Muscle3/muscle3
 
 INSTALL_PDS="true"
-INSTALL_IMAS_MUSCLE3="true"
+INSTALL_IMAS_MUSCLE3="false"
 INSTALL_MUSCLE3_DASHBOARD="false"
 INSTALL_WAVEFORM_EDITOR="false"
-INSTALL_METIS="true"
+INSTALL_METIS="false"
 INSTALL_NICE="true"
 INSTALL_TORAX="false"
 INSTALL_CHEASE="false"
-INSTALL_PCS="true"
-INSTALL_PLASMALESS="true"
+INSTALL_PCS="false"
+INSTALL_PLASMALESS="false"
 
 BRANCH_PDS='master'
 BRANCH_IMAS_MUSCLE3='develop'
 BRANCH_MUSCLE3_DASHBOARD='main'
 BRANCH_WAVEFORM_EDITOR='main'
 BRANCH_METIS='develop'
-BRANCH_NICE='develop'
+BRANCH_NICE='ggros'
 BRANCH_TORAX='develop'
 BRANCH_CHEASE='feature/muscle3'
 BRANCH_PCS='master'

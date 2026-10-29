@@ -11,6 +11,11 @@ if numel(voltage) ~= 14
         'expected the 14-wide voltage command, got %s', mat2str(size(voltage)));
 end
 
+%kick = evalin('base','kick');
+%if t_cur >= kick.t_on && t_cur < kick.t_on + kick.width
+ %   voltage(kick.supply) = voltage(kick.supply) + kick.voltage;
+%end
+
 pfa = ids_init('pf_active');
 pfa.ids_properties.homogeneous_time = 1;
 pfa.time = t_cur;

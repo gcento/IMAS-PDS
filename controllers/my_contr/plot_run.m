@@ -2,21 +2,18 @@ close all
 clc
 clear
 
-run_dir  = '/home/ITER/centong/Desktop/PDSs/IMAS-PDS/cases/runs/linear_plant_controller_105073_20261018_131731_Vert_VS1';
-csv_file = fullfile(run_dir, 'simulink_log.csv');
+% one run, or a cell array of runs to compare (one colour per run)
+  run_dir  = {'/home/ITER/centong/Desktop/PDSs/IMAS-PDS/cases/runs/linear_plant_controller_105073_20261028_163916_LinMD_noise_nops',
+      '/home/ITER/centong/Desktop/PDSs/IMAS-PDS/cases/runs/linear_plant_controller_105073_20261028_164344_LinMD_noise_ps',
+     '/home/ITER/centong/Desktop/PDSs/IMAS-PDS/cases/runs/linear_plant_controller_105073_20261028_164858_LinMD_noise_filt_ps'};
+%run_dir  = {'/home/ITER/centong/Desktop/PDSs/IMAS-PDS/cases/runs/linear_plant_controller_105073_20261028_163916_LinMD_noise_nops'};
+% run_dir  = {'/home/ITER/centong/Desktop/PDSs/IMAS-PDS/cases/runs/linear_plant_controller_105073_20261028_163916_LinMD_noise_nops',
+% '/home/ITER/centong/Desktop/PDSs/IMAS-PDS/cases/runs/linear_plant_controller_105073_20261028_164344_LinMD_noise_ps' };
+% RMS of the coil currents: deviation from the first sample, computed from t_rms after it
+plot_rms = true;
+t_rms    = 0.3;       % [s] skip the start of the run
 
-[runs_dir, run_name] = fileparts(strip(run_dir, 'right', '/'));
-case_dir = fullfile(fileparts(runs_dir), regexprep(run_name, '_\d{8}_\d{6}.*$', ''));
-plant_dir = fullfile(run_dir, 'out_plant');               % plant outputs
-
-eq_file   = fullfile(plant_dir, 'equilibrium.h5');
-pfa_file  = fullfile(plant_dir, 'pf_active.h5');      % plant: measured coil currents
-ppas_file = fullfile(plant_dir, 'pf_passive.h5');     % plant: vessel loop currents
-ctrl_file = fullfile(run_dir, 'out_controller', 'pf_active.h5');   % voltages sent by the controller
-
-ref_file  = fullfile(case_dir, 'preprocess', 'initial_state', 'pf_active.h5');
-
-ts = '/equilibrium/time_slice[]&';
+ts ='/equilibrium/time_slice[]&';
 eq_signals = {
     'ip', [ts 'global_quantities&ip']
     'zgeo', [ts 'boundary&geometric_axis&z']
@@ -46,21 +43,39 @@ ppas_signals = {
     'loop_current', '/pf_passive/loop[]&current'
 };
 
-csv_ctrl = read_csv_signals(csv_file);
-eq   = read_h5_signals(eq_file,   '/equilibrium/time', eq_signals);
-pfa  = read_h5_signals(pfa_file,  '/pf_active/time',   pfa_signals);
-ref  = read_h5_signals(ref_file,  '/pf_active/time',   ref_signals);
-ctrl = read_h5_signals(ctrl_file, '/pf_active/time',   ctrl_signals);
-ppas = read_h5_signals(ppas_file, '/pf_passive/time',  ppas_signals);
-
-if abs(csv_ctrl.time(end) - pfa.time(end)) > 0.01
-    warning('simulink_log.csv ends at t = %.3f s but the run at %.3f s: it is from another run', ...
-        csv_ctrl.time(end), pfa.time(end));
+% read every run; the F_INIT reference (ref) comes from the case of the run
+run_dirs = cellstr(run_dir);
+for i = 1:numel(run_dirs)
+    rd = strip(run_dirs{i}, 'right', '/');
+    [runs_dir, run_name] = fileparts(rd);
+    case_name = regexprep(run_name, '_\d{8}_\d{6}.*$', '');
+    R(i).case_dir = fullfile(fileparts(runs_dir), case_name);
+    R(i).label = strrep(erase(run_name, [case_name '_']), '_', '\_');   % e.g. 20261023\_144802
+    R(i).csv  = read_csv_signals(fullfile(rd, 'simulink_log.csv'));
+    R(i).eq   = read_h5_signals(fullfile(rd, 'out_plant', 'equilibrium.h5'), '/equilibrium/time', eq_signals);
+    R(i).pfa  = read_h5_signals(fullfile(rd, 'out_plant', 'pf_active.h5'), '/pf_active/time', pfa_signals);       % measured coil currents
+    R(i).ppas = read_h5_signals(fullfile(rd, 'out_plant', 'pf_passive.h5'), '/pf_passive/time', ppas_signals);    % vessel loop currents
+    R(i).ctrl = read_h5_signals(fullfile(rd, 'out_controller', 'pf_active.h5'), '/pf_active/time', ctrl_signals); % voltages sent by the controller
+    R(i).ref  = read_h5_signals(fullfile(R(i).case_dir, 'preprocess', 'initial_state', 'pf_active.h5'), ...
+        '/pf_active/time', ref_signals);
+    if abs(R(i).csv.time(end) - R(i).pfa.time(end)) > 0.01
+        warning('%s: simulink_log.csv ends at t = %.3f s but the run at %.3f s: it is from another run', ...
+            run_name, R(i).csv.time(end), R(i).pfa.time(end));
+    end
 end
+if numel(unique({R.case_dir})) > 1
+    warning('The runs come from different cases: the KCURR reference and the F_INIT slices shown are those of the first run.');
+end
+colors = lines(numel(R));
+t_lim = [min(arrayfun(@(r) r.csv.time(1), R)), max(arrayfun(@(r) r.csv.time(end), R))];
+% the first run, for the reference and the single-run sections
+csv_ctrl = R(1).csv; eq = R(1).eq; pfa = R(1).pfa; ref = R(1).ref; ctrl = R(1).ctrl; ppas = R(1).ppas;
 
 % ===== Constants =====
 circ_names = {'CS3U','CS2U','CS1','CS2L','CS3L','PF1','PF2','PF3','PF4','PF5','PF6'};
-idx11 = [1 2 3 5 6 7 8 9 10 11 12];   
+% the 14 coils of pf_active and the KCURR circuit of each (column of CSPF_curr_ref, 0 = none)
+coil_names = {'CS3U','CS2U','CS1U','CS1L','CS2L','CS3L','PF1','PF2','PF3','PF4','PF5','PF6','VS3U','VS3L'};
+coil_circ = [1 2 3 3 4 5 6 7 8 9 10 11 0 0];
 % the 14 voltages sent by the controller are power-supply voltages, coil{k}.voltage = supply k
 % (controller_output_preprocess); limits: voltage_limit_max of pf_active.supply in the F_INIT entry
 supply_names = {'CS3U','CS2U','CS1U','CS1L','CS2L','CS3L','PF1','PF2','PF3','PF4','PF5','VS1','PF6','VS3'};
@@ -72,43 +87,58 @@ t_csv = csv_ctrl.time;
 slices = ref.time(ref.time >= t_csv(1) & ref.time <= t_csv(end));
 
 figure('Name','Coil error')
-tiledlayout(2, 1, 'TileSpacing', 'compact');
-nexttile
-hh = plot(csv_ctrl.t,csv_ctrl.KCURR_CSPF_ctrl_e);
-title('KCURR control error')
-ylabel('I [A]')
-nexttile
-% normalised to each circuit's max |I_ref| over the run: dividing by I_ref itself blows up
-% where a reference crosses zero (CS2L at 70.49 s in linear_plant_controller_105073)
-I_norm = max(abs(csv_ctrl.CSPF_curr_ref), [], 1);
-h = plot(csv_ctrl.t, 100*csv_ctrl.KCURR_CSPF_ctrl_e ./ I_norm);
-title('KCURR control error [% of max |I_{ref}|]')
-%h =plot(csv_ctrl.t,(csv_ctrl.KCURR_CSPF_ctrl_e));
-legend(circ_names)
-xlabel('t [s]')
-%ylabel('[A]')
-set(h([1 2 3 4 5]), 'LineWidth', 1.7)
-set(hh([1 2 3 4 5]), 'LineWidth', 1.7)
-% ===== 1) Coil currents v*s reference =====
-figure('Name', 'Coil currents vs reference');
-tiledlayout(3, 4, 'TileSpacing', 'compact');
-for k = 1:11
+tiledlayout(2, numel(R), 'TileSpacing', 'compact', 'TileIndexing', 'columnmajor');   % one column per run
+for i = 1:numel(R)
+    c = R(i).csv;
     nexttile
-    plot(pfa.time, pfa.coil_current(:, idx11(k)) / 1e3, 'b'); hold on
-    plot(t_csv, csv_ctrl.CSPF_curr_ref(:, k) / 1e3, 'r--');
-    plot(ref.time, ref.coil_current(:, idx11(k)) / 1e3, 'ko', 'MarkerSize', 4);
-    xlim([t_csv(1) t_csv(end)]); grid on
-    title(circ_names{k}); xlabel('t [s]'); ylabel('I [kA]');
+    hh = plot(c.t, c.KCURR_CSPF_ctrl_e);
+    title(['KCURR control error ' R(i).label])
+    ylabel('I [A]')
+    nexttile
+    % normalised to each circuit's max |I_ref| over the run: dividing by I_ref itself blows up
+    % where a reference crosses zero (CS2L at 70.49 s in linear_plant_controller_105073)
+    I_norm = max(abs(c.CSPF_curr_ref), [], 1);
+    h = plot(c.t, 100*c.KCURR_CSPF_ctrl_e ./ I_norm);
+    title('KCURR control error [% of max |I_{ref}|]')
+    %h =plot(c.t,(c.KCURR_CSPF_ctrl_e));
+    xlabel('t [s]')
+    %ylabel('[A]')
+    set(h([1 2 3 4 5]), 'LineWidth', 1.7)
+    set(hh([1 2 3 4 5]), 'LineWidth', 1.7)
 end
-legend('measured (plant)', 'reference seen by KCURR', 'F\_INIT slices', 'Location', 'best');
-%VS3 coils (not in KCURR): VS3U, -VS3L and the circuit current (I_U - I_L)/2 seen by VS
-nexttile
-Iu = pfa.coil_current(:, 13); Il = pfa.coil_current(:, 14);
-plot(pfa.time, Iu / 1e3, 'b', pfa.time, -Il / 1e3, 'm', pfa.time, (Iu - Il) / 2e3, '--'); hold on
-plot(ref.time, ref.coil_current(:, 13) / 1e3, 'ko', 'MarkerSize', 4);
-xlim([t_csv(1) t_csv(end)]); grid on
-title('VS3'); xlabel('t [s]'); ylabel('I [kA]');
-legend('VS3U', '-VS3L', '(I_U - I_L)/2', 'F\_INIT VS3U', 'Location', 'best');
+legend(circ_names)
+% ===== 1) Coil currents v*s reference =====
+% the 14 coil currents, taken by name; the KCURR reference is that of the circuit (CS1 for
+% CS1U and CS1L, none for VS3U and VS3L, independent in the NICE linearisations)
+coil = @(s, name) s.coil_current(:, strcmp(cellstr(string(s.coil_names)), name));
+figure('Name', 'Coil currents vs reference');
+tiledlayout(4, 4, 'TileSpacing', 'compact');
+for k = 1:numel(coil_names)
+    nexttile
+    hold on
+    for i = 1:numel(R)
+        h_run(i) = plot(R(i).pfa.time, coil(R(i).pfa, coil_names{k}) / 1e3, 'Color', colors(i,:));
+    end
+    if coil_circ(k) > 0
+        h_ref = plot(t_csv, csv_ctrl.CSPF_curr_ref(:, coil_circ(k)) / 1e3, 'r--');
+    end
+    h_finit = plot(ref.time, coil(ref, coil_names{k}) / 1e3, 'ko', 'MarkerSize', 4);
+    xlim(t_lim); grid on
+    title(coil_names{k}); xlabel('t [s]'); ylabel('I [kA]');
+    if plot_rms                                % RMS of I - I(t0) from t0 + t_rms, one line per run
+        for i = 1:numel(R)
+            I_k = coil(R(i).pfa, coil_names{k});
+            w = R(i).pfa.time >= R(i).pfa.time(1) + t_rms;
+            text(0.02, 0.97 - 0.11*(i-1), sprintf('RMS %.3g A', rms(I_k(w) - I_k(1))), ...
+                'Units', 'normalized', 'VerticalAlignment', 'top', 'FontSize', 8, 'Color', colors(i,:));
+        end
+    end
+    if k == 1
+        lg = legend([h_run, h_ref, h_finit], [strcat({'measured '}, {R.label}), ...
+            {'reference seen by KCURR', 'F\_INIT slices'}]);
+        lg.Layout.Tile = 'east';
+    end
+end
 
 % % ===== 2) KCURR current error vs the P-only prediction =====
 % figure('Name', 'KCURR current error');
@@ -149,14 +179,38 @@ figure('Name', 'Power-supply voltages');
 tiledlayout(4, 4, 'TileSpacing', 'compact');
 for k = 1:numel(supply_names)
     nexttile
-    plot(ctrl.time, ctrl.coil_voltage(:, k), 'b'); hold on
-    plot(ref.time, ref_supply_voltage(:, k), 'ko', 'MarkerSize', 4);
-    yline([-1 1] * vlim_supply(k), 'r--');
-    xlim([ctrl.time(1) ctrl.time(end)]); grid on
+    hold on
+    for i = 1:numel(R)
+        h_run(i) = plot(R(i).ctrl.time, R(i).ctrl.coil_voltage(:, k), 'Color', colors(i,:));
+    end
+    h_finit = plot(ref.time, ref_supply_voltage(:, k), 'ko', 'MarkerSize', 4);
+    h_lim = yline([-1 1] * vlim_supply(k), 'r--');
+    xlim(t_lim); grid on
     title(supply_names{k}); xlabel('t [s]'); ylabel('V [V]');
 end
-legend('sent by controller', 'F\_INIT reference (from coil voltages)', 'limit', 'Location', 'best');
-% 
+legend([h_run, h_finit, h_lim(1)], [strcat({'sent by controller '}, {R.label}), ...
+    {'F\_INIT reference (from coil voltages)', 'limit'}], 'Location', 'best');
+
+% ===== Zdot seen by the VS controller (simulink_log.csv) =====
+figure('Name', 'Zdot');
+hold on
+for i = 1:numel(R)
+    plot(R(i).csv.time, R(i).csv.Zdot, 'Color', colors(i,:));
+end
+xlim(t_lim); grid on
+title('Zdot seen by VS'); xlabel('t [s]'); ylabel('Zdot [m/s]');
+legend({R.label}, 'Location', 'best');
+
+% ===== zmag of the plant (equilibrium of out_plant), deviation from the first sample =====
+figure('Name', 'zmag');
+hold on
+for i = 1:numel(R)
+    plot(R(i).eq.time, 1e3*(R(i).eq.zmag - R(i).eq.zmag(1)), 'Color', colors(i,:));
+end
+xlim(t_lim); grid on
+title('zmag of the plant'); xlabel('t [s]'); ylabel('\Deltaz [mm]');
+legend({R.label}, 'Location', 'best');
+%
 % % ===== 4) Series (CS1) and anti-series (VS3) pairs in the plant =====
 % % In ITER CS1U+CS1L are one series circuit and VS3U/VS3L one anti-series circuit; the
 % % plasmaless model drives each coil with its own voltage, so these pairs are not forced.

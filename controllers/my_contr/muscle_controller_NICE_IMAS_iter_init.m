@@ -127,6 +127,39 @@ if instance.reuse_instance()
     Gaps_ref = timeseries(gaps_ref, equilibrium.time);
     CSPF_curr_ref = timeseries(reference_current,equilibrium.time);
 
+    % setting hold_references (0 = off, default): every reference (CS/PF currents, Ip, R, Z,
+    % gaps) stays at the first slice, the operating point of the linear plant models
+    if double(instance.get_setting('hold_references', pyargs('default', 0)))
+        t_hold = [t_start, max(t_max, t_start) + 1];
+        Ipl_ref = timeseries(ip_ref([1 1]), t_hold);
+        Rpl_ref = timeseries(rgeo_ref([1 1]), t_hold);
+        Zpl_ref = timeseries(zgeo_ref([1 1]), t_hold);
+        Gaps_ref = timeseries(gaps_ref(:, [1 1]), t_hold);
+        CSPF_curr_ref = timeseries(reference_current([1 1], :), t_hold);
+
+    end
+
+    % Test reference, e.g. for the power-supply model: setting ref_trapezoid_amplitude [A]
+    % (0 = off, default). The CS/PF references stay at the first slice (t0, the
+    % linearisation point) and every CS/PF coil (the 12 before VS3U/VS3L) gets the same
+    % trapezoid from t0: ramp 0.5 s, flat 0.5 s, ramp down 0.5 s.
+
+        %t_trap = t_start + [0 1.5 3 4.5];
+        %t_trap(end+1) = max(t_max, t_trap(end)) + 1;          % flat after the trapezoid
+        %trap_current = repmat(reference_current(1,:), numel(t_trap), 1);
+        %trap_current(2:3, 1:12) = trap_current(2:3, 1:12) + 500;
+        %CSPF_curr_ref = timeseries(trap_current, t_trap);
+
+    % step test: all CS/PF references (first slice) jump by +200 A at t0 + 0.1 s
+    %t_step = t_start + 0.1;
+    %step_current = repmat(reference_current(1,:), 4, 1);
+    %step_current(3:4, 1:12) = step_current(3:4, 1:12) + 1000;
+    %CSPF_curr_ref = timeseries(step_current, [t_start, t_step, t_step + 1e-6, max(t_max, t_step) + 1]);
+
+
+
+
+
     
 
     enable_KCURR= double(instance.get_setting('KCURR', pyargs('default', 0))); %Enable CSPF current controller KCURR (=1)
@@ -148,14 +181,13 @@ if instance.reuse_instance()
     SCIpScaling = 0; %Shape control action scaled with (nominal or estimated) Ip {'Off (0)'; 'On with nominal Ip (1)'; 'On with estimated Ip (2)'}
     IpControlMode = 0; % Activation of Ip Control (In case of CCS, 0 non active, 1 if integrated with KCURR, 2 if integrated with Shape control, In case of VCS 0 non active, 1 active).
 
-    AllocatorMode = 1; 
-    
-    % Exchange period with the plant (s), the sample time of the CODAC_input, MATLAB
-    % Function and Output blocks of the Simulink model: setting in_out_msg_dt (in a case
-    % override: magnetic_controller.in_out_msg_dt), default 0.002. It must equal the plant's
-    % exchange period (plant.t_interval, nice_evo_rd.t_interval); muscle_IDS_NICE_output
-    % stops the run if it does not.
-    in_out_dt = double(instance.get_setting('in_out_msg_dt', pyargs('default', 0.002)));
+    AllocatorMode = double(instance.get_setting('Allocator', pyargs('default', 0))); ;
+    usePSModel = double(instance.get_setting('PSModel', pyargs('default', 0))); 
+    % Exchange period with the plant (s), the sample time of the CODAC_input, MATLAB Function and Output blocks of the Simulink model:
+    in_out_dt = double(instance.get_setting('in_out_msg_dt', pyargs('default', 0.001)));
+    zdot_disturbance = double(instance.get_setting('zdot_disturbance', pyargs('default', 0)));
+    zdot_filter = double(instance.get_setting('zdot_filter', pyargs('default', 0)));
+
 
     logger.info(sprintf('exchange period in_out_dt = %g s', in_out_dt));
     %%  Simulink controller
@@ -254,6 +286,12 @@ if instance.reuse_instance()
     end
 
     tic;
+
+    % disturbance test: voltage kick added to one supply after the controller (14 = VS3,
+    % 12 = VS1); not filtered by the PS model. voltage = 0 turns it off
+    %kick = struct('supply', 14, 'voltage', 200, 't_on', t_start + 0.05, 'width', 0.01);
+
+
     logs = sim(in);
     close_system('pcssp_controller_and_ps',0);
     simulation_time=toc;
