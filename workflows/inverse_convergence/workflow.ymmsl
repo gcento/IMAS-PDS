@@ -11,6 +11,7 @@ ymmsl_version: v0.2
 #
 #   equilibrium  nice_inverse      whole-trace NICE inverse solve (batch mode)
 #   transport    transport         transport co-simulation (TORAX only, for now)
+#   diagnostics  diagnostics       plasma-wall gaps added to the NICE output for the sink
 #
 # `nice_inverse` is one NICE inverse actor solving the whole trace in batch mode.
 #
@@ -29,6 +30,7 @@ imports:
 #- from lib.easybuild_programs import implementation torax
 #- from lib.easybuild_programs import implementation nice_inv
 - from lib.easybuild_programs import implementation psi_anchor
+- from lib.local_programs import implementation diagnostics
 
 models:
   nice_inverse:
@@ -132,6 +134,12 @@ models:
           o_i: [equilibrium_out_i, core_profiles_out_i]
           o_f: [equilibrium_out_f, core_profiles_out_f]
 
+      diagnostics:
+        description: plasma-wall gaps added to the NICE inverse output (boundary.gap), the
+          gap references of evolutive_controller; pf_active passed through unchanged
+        implementation: diagnostics
+        ports: {f_init: [equilibrium_in, pf_active_in], o_f: [equilibrium_out, pf_active_out]}
+
       sink_equilibrium:
         description: sink -- NICE inverse outputs
         implementation: sink_component
@@ -170,8 +178,10 @@ models:
       waveform_editor.core_sources_out: transport.core_sources_in_f
       waveform_editor.core_profiles_out: transport.core_profiles_in_f
 
-      equilibrium.equilibrium_out: [transport.equilibrium_in_f, sink_equilibrium.equilibrium_in]
-      equilibrium.pf_active_out: [loop.pf_active_in_s, sink_equilibrium.pf_active_in]
+      equilibrium.equilibrium_out: [transport.equilibrium_in_f, diagnostics.equilibrium_in]
+      diagnostics.equilibrium_out: sink_equilibrium.equilibrium_in
+      equilibrium.pf_active_out: [loop.pf_active_in_s, diagnostics.pf_active_in]
+      diagnostics.pf_active_out: sink_equilibrium.pf_active_in
 
       transport.equilibrium_out_i: recorder_transport.equilibrium_in
       transport.core_profiles_out_i: recorder_transport.core_profiles_in

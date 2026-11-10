@@ -5,9 +5,7 @@ It shows, for the time selected in the dashboard:
 - the plasma: boundary now (red) and at the start of the run (grey, dashed),
   X-points, wall, vessel and coils, with equal R and Z scales; psi contours
   on request (checkbox, off by default);
-- |Ip|, Z and R over the run. Z and R are the plasma position the controller
-  uses (magnetic_controller.plasma_position of the run: geometric axis,
-  magnetic axis or current centre);
+- |Ip|, and Z and R of the current centre written
 - p' and ff' against normalised psi, now and at the start;
 - the coil currents with the reference KCURR tracks, read from the run's
   simulink_log.csv (my_contr; see _read_reference).
@@ -36,7 +34,6 @@ import numpy as np
 import panel as pn
 import param
 import xarray as xr
-import yaml
 from bokeh.events import Tap
 from bokeh.models import (
     BoxZoomTool,
@@ -70,7 +67,7 @@ logger = logging.getLogger()
 N_OUTLINE = 101                      # boundary points per slice
 N_X = 2                              # X-points per slice
 PSI_N = np.linspace(0.0, 1.0, 51)    # grid of the stored profiles
-SCALARS = ("ip", "r_geo", "z_geo", "r_axis", "z_axis", "r_cc", "z_cc")
+SCALARS = ("ip", "r_cc", "z_cc")
 PROFILES = ("dpressure_dpsi", "f_df_dpsi")
 
 # Meshes already stored by this recorder process, and the last time seen
@@ -146,62 +143,6 @@ def _grid_key(r, z):
     return (r.size, float(np.sum(r)), float(np.sum(z)), float(np.sum(r[:half])), float(np.sum(z[:half])))
 
 
-_CENTROID_MESH = {}     # _grid_key -> (triangles, areas, R and Z of the triangle centres)
-
-
-def _mesh_centroid(ts):
-    """Exact current centre, as current_centre_estimate.m computes it: the
-    j_phi-weighted centroid of NICE's mesh current density (ggd j_phi on the nodes
-    ggd r, z), linear on the Delaunay triangles of the nodes. NaN without mesh data."""
-    if not (len(ts.ggd) and len(ts.ggd[0].j_phi) and len(ts.ggd[0].r) and len(ts.ggd[0].z)):
-        return np.nan, np.nan
-    g = ts.ggd[0]
-    r, z, j = _array(g.r[0].values), _array(g.z[0].values), _array(g.j_phi[0].values)
-    if not (r.size >= 3 and r.size == z.size == j.size and np.all(np.isfinite(r) & np.isfinite(z))):
-        return np.nan, np.nan
-    key = _grid_key(r, z)
-    if key not in _CENTROID_MESH:
-        tri = mtri.Triangulation(r, z).triangles
-        x, y = r[tri], z[tri]
-        area = 0.5 * np.abs((x[:, 1] - x[:, 0]) * (y[:, 2] - y[:, 0]) - (x[:, 2] - x[:, 0]) * (y[:, 1] - y[:, 0]))
-        _CENTROID_MESH[key] = (tri, area, x.mean(axis=1), y.mean(axis=1))
-    tri, area, rm, zm = _CENTROID_MESH[key]
-    j = np.where(np.isfinite(j) & (np.abs(j) < 1e30), j, 0.0)
-    di = j[tri].mean(axis=1) * area     # current in each triangle
-    total = di.sum()
-    if total == 0:
-        return np.nan, np.nan
-    return float(np.sum(rm * di) / total), float(np.sum(zm * di) / total)
-
-
-def _current_centre(ts, r_geo, z_geo):
-    """Current centre as the controller takes it (muscle_nice2control.m):
-    global_quantities.current_centre when filled (NICE leaves it empty), else as
-    current_centre_estimate.m computes it (exact from the mesh j_phi, else estimated
-    from profiles_1d: flux-surface geometric axes weighted by j_phi*dA), else the
-    boundary geometric axis."""
-    cc = ts.global_quantities.current_centre
-    r, z = _float(cc.r), _float(cc.z)
-    if np.isfinite(r) and r > 0:
-        return r, z
-    r, z = _mesh_centroid(ts)
-    if np.isfinite(z):
-        return r, z
-    p = ts.profiles_1d
-    j = _array(p.j_phi) if hasattr(p, "j_phi") else np.array([])
-    if not j.size and hasattr(p, "j_tor"):
-        j = _array(p.j_tor)    # DD3 name
-    a, rg, zg = _array(p.area), _array(p.geometric_axis.r), _array(p.geometric_axis.z)
-    if a.size >= 2 and j.size == rg.size == zg.size == a.size:
-        di = 0.5 * (j[:-1] + j[1:]) * np.diff(a)     # current between adjacent surfaces
-        rm, zm = 0.5 * (rg[:-1] + rg[1:]), 0.5 * (zg[:-1] + zg[1:])
-        ok = np.isfinite(di) & np.isfinite(rm) & np.isfinite(zm)
-        if ok.any() and np.sum(di[ok]) != 0:
-            return (float(np.sum(rm[ok] * di[ok]) / np.sum(di[ok])),
-                    float(np.sum(zm[ok] * di[ok]) / np.sum(di[ok])))
-    return r_geo, z_geo
-
-
 class State(BaseState):
     def extract(self, message):
         name = message.metadata.name
@@ -244,13 +185,9 @@ class State(BaseState):
 
     def _extract_slice(self, ts, t):
         gq, b, prof = ts.global_quantities, ts.boundary, ts.profiles_1d
-        r_geo, z_geo = _float(b.geometric_axis.r), _float(b.geometric_axis.z)
-        r_cc, z_cc = _current_centre(ts, r_geo, z_geo)
         scalars = {
             "ip": _float(gq.ip),
-            "r_geo": r_geo, "z_geo": z_geo,
-            "r_axis": _float(gq.magnetic_axis.r), "z_axis": _float(gq.magnetic_axis.z),
-            "r_cc": r_cc, "z_cc": z_cc,
+            "r_cc": _float(gq.current_centre.r), "z_cc": _float(gq.current_centre.z),
         }
         boundary = np.array(_resample_closed(_array(b.outline.r), _array(b.outline.z), N_OUTLINE))
 
@@ -335,14 +272,9 @@ PLOT_MIN_WIDTH = 300     # narrowest plot before its box wraps to a new row [px]
 COIL_MIN_WIDTH = 230
 FLUX_MAP_HEIGHT = 640    # plasma figure frame [px]; the width follows the machine
 
-# magnetic_controller.plasma_position -> (R column, Z column, label)
-POSITIONS = {
-    "geometric_axis": ("r_geo", "z_geo", "geometric axis"),
-    "magnetic_axis": ("r_axis", "z_axis", "magnetic axis"),
-    "current_centre": ("r_cc", "z_cc", "current centre"),
-}
 # Time plots: (column, title, unit, smallest axis span shown)
-TIME_PLOTS = (("ip", "|Ip|", "MA", 0.02), ("z", "Z", "m", 0.005), ("r", "R", "m", 0.005))
+TIME_PLOTS = (("ip", "|Ip|", "MA", 0.02), ("z", "Z current centre", "m", 0.005),
+              ("r", "R current centre", "m", 0.005))
 COIL_MIN_SPAN = 0.5      # [kA]
 # coil -> KCURR circuit, the k of KCURR_actual_ref_<k> in my_contr's simulink_log.csv
 REFERENCE_CIRCUIT = {"CS3U": 1, "CS2U": 2, "CS1U": 3, "CS1L": 3, "CS2L": 4, "CS3L": 5,
@@ -410,18 +342,6 @@ def _run_dir(ds):
     return Path(ds.encoding["source"]).parents[4]
 
 
-def _controller_position(ds):
-    """magnetic_controller.plasma_position of the run, read from its
-    configuration.ymmsl; geometric_axis when unset, as in the controller."""
-    try:
-        settings = yaml.safe_load((_run_dir(ds) / "configuration.ymmsl").read_text())["settings"]
-        position = str(settings.get("magnetic_controller.plasma_position", "geometric_axis"))
-    except Exception:
-        logger.warning("plasma_position of the run not found, showing the geometric axis", exc_info=True)
-        return "geometric_axis"
-    return position if position in POSITIONS else "geometric_axis"
-
-
 class Plotter(BasePlotter):
     contours = param.Boolean(default=False, label="ψ contours")
     levels = param.Integer(default=20, bounds=(2, 100), doc="Number of contour levels")
@@ -432,7 +352,6 @@ class Plotter(BasePlotter):
         self._shown = {}        # (group, variable) -> (samples, first time, last time) plotted
         self._first = {}        # rows at the first time, by (variable, first time)
         self._spans = []        # time cursors of all the time plots
-        self._position = None   # controller position shown in Z/R
         self._coil_figs = {}
         self._src_refs = {}     # coil -> reference line source
         self._reference = {}    # coil -> (log times, KCURR reference [kA])
@@ -684,20 +603,14 @@ class Plotter(BasePlotter):
             self._on_time()
 
     def _refresh_scalars(self):
-        if self._position is None and "equilibrium" in self._state.data:
-            self._position = _controller_position(self._state.data["equilibrium"])
-            label = POSITIONS[self._position][2]
-            self._time_figs["z"][1] = f"Z {label}"
-            self._time_figs["r"][1] = f"R {label}"
         rows, grown = self._new_rows("equilibrium", "scalars")
         if rows is None:
             return
-        r_col, z_col, _ = POSITIONS[self._position]
         cols = {
             "time": np.asarray(rows.time.values, dtype=float),
             "ip": np.abs(rows.sel(quantity="ip").values) / 1e6,
-            "z": rows.sel(quantity=z_col).values,
-            "r": rows.sel(quantity=r_col).values,
+            "z": rows.sel(quantity="z_cc").values,
+            "r": rows.sel(quantity="r_cc").values,
         }
         if grown:
             self._src_scalars.stream(cols)

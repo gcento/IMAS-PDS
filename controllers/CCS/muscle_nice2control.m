@@ -1,8 +1,8 @@
 function [coils_current,rpl,zpl,ip,gaps,li3,schedulingVar_RZIp,t_out,stop_signal] = muscle_nice2control()
 
 global z_cur
-% Vertical velocity given by the plant (current_centre.velocity_z), read by
-% controller_input_preprocess; NaN when not available: Zdot is then the derivative of zpl
+% Vertical velocity of the current centre, from the equilibrium IDS (current_centre.velocity_z,
+% written by the diagnostics actor), read by controller_input_preprocess
 global zdot_meas
 
 % retrieve instance object from base ws
@@ -12,7 +12,7 @@ logger = evalin('base','logger');
 % Holds the last accepted measurement across calls, for the output_flag=-1
 % case below (persists for the lifetime of the MATLAB session/model).
 persistent last_coils_current last_rpl last_zpl last_ip last_t_out last_gaps last_li3 last_schedulingVar_RZIp finished
-persistent last_zdot_meas cc_source
+persistent last_zdot_meas
 % Set once nice_evo_rd sends its final message (next_timestamp=None). The
 % Stop Simulation block this feeds only halts at the end of the current
 % step, so this same function still gets called again on a later step --
@@ -28,7 +28,7 @@ gaps = zeros(N_GAPS,1);
 coils_current=zeros(14,1);
 schedulingVar_RZIp=zeros(3,1); %time,li,elongation
 if isempty(last_zdot_meas)
-    last_zdot_meas = NaN;
+    last_zdot_meas = 0;
 end
 zdot_meas = last_zdot_meas;     % held by the early returns below
 
@@ -102,41 +102,29 @@ if is_stale && ~isempty(last_ip)
     schedulingVar_RZIp = last_schedulingVar_RZIp;
 else
     %NEW QUANTITIES
-    ip= equilibrium.time_slice{1}.global_quantities.ip;
     gq = equilibrium.time_slice{1}.global_quantities;
-    zdot_meas = NaN;
-    switch evalin('base','plasma_position')
-        case 'geometric_axis'
-            rpl = equilibrium.time_slice{1}.boundary.geometric_axis.r;
-            zpl = equilibrium.time_slice{1}.boundary.geometric_axis.z;
-        case 'current_centre'
-            cc = gq.current_centre;
-            if is_filled(cc.r) && cc.r > 0
-                rpl = cc.r;
-                zpl = cc.z;
-                source = 'current_centre';
-                if is_filled(cc.velocity_z) && cc.velocity_z ~= 0
-                    zdot_meas = cc.velocity_z;
-                end
-            else
-                [rpl, zpl, how] = current_centre_estimate(equilibrium.time_slice{1});
-                source = ['current centre from ' how];
-                if isnan(zpl)
-                    rpl = equilibrium.time_slice{1}.boundary.geometric_axis.r;
-                    zpl = equilibrium.time_slice{1}.boundary.geometric_axis.z;
-                    source = 'boundary geometric axis (no current centre, no ggd)';
-                end
-            end
-            if ~strcmp(source, cc_source)
-                logger.info(sprintf('muscle_nice2control: from t = %g, plasma position = %s', t_out, source));
-                cc_source = source;
-            end
-        otherwise
-            rpl = gq.magnetic_axis.r;
-            zpl = gq.magnetic_axis.z;
+    ip = gq.ip;
+    % plasma position and vertical velocity: the current centre, written by NICE (r, z) and
+    % by the diagnostics actor (velocity_z)
+    cc = gq.current_centre;
+    if ~is_filled(cc.r) || ~is_filled(cc.z) || ~is_filled(cc.velocity_z)
+        error('muscle_nice2control: no current centre or no current_centre.velocity_z at t = %g (NICE build without current_centre, or no diagnostics actor in the workflow?)', t_out);
     end
+    rpl = cc.r;
+    zpl = cc.z;
+    zdot_meas = cc.velocity_z;
     last_zdot_meas = zdot_meas;
 
+    GAP_LIST = evalin('base', 'GAP_LIST');
+    gap = equilibrium.time_slice{1}.boundary.gap;
+    for k = GAP_LIST
+        if numel(gap) >= k && ~isempty(gap{k}.value) && abs(gap{k}.value) < 1e30
+            gaps(k) = gap{k}.value;
+        elseif ~isempty(last_gaps)
+            gaps(k) = last_gaps(k);   % gap not found: hold the last value
+        end
+    end
+    
     for ii=1:length(pf_active.coil)
        coil=struct(pf_active.coil{ii});
        coils_current(ii)= coil.current.data;

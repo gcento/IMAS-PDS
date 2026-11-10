@@ -6,8 +6,6 @@ settings:
   source.t_max: 130.0
   #source.dt: 1
   torax.python_config_module: ${PDS_REPO}/cases/overrides/evolutive_controller_105073_config_torax.py
-  # evolve_current is False in the config: TORAX's psi is NICE's, not the inverse's
-  # (workflows/utils/torax_psi_from_equilibrium.py)
   torax.psi_from_equilibrium: True
 
   torax.t_final: 87.0
@@ -21,7 +19,6 @@ settings:
   magnetic_controller.PSModel: 1
   magnetic_controller.in_out_msg_dt: 0.001
   magnetic_controller.nice_signs: 1
-  magnetic_controller.plasma_position: 'current_centre'
 
   torax.fixed_dt: 0.001
   nice_evo_rd.dt: 0.001

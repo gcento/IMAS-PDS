@@ -79,46 +79,42 @@ if instance.reuse_instance()
     ip_ref = zeros(1,n_slices);
     rpl_ref = zeros(1,n_slices);
     zpl_ref = zeros(1,n_slices);
-    
+
+    GAP_LIST = [3 8 15 21 25 48];
     N_GAPS = 62; % 6 used by the controller
     gaps_ref = zeros(N_GAPS,n_slices); %TODO: update gaps
     
-    plasma_position = char(instance.get_setting('plasma_position', pyargs('default', 'geometric_axis')));
-    if ~any(strcmp(plasma_position, {'geometric_axis','magnetic_axis','current_centre'}))
-        error('muscle_controller_NICE_IMAS_iter_init:plasma_position',['plasma_position must be ''geometric_axis'', ''magnetic_axis'' or ''current_centre'' (got ''%s'').'], plasma_position);
-    end
-    logger.info(sprintf('plasma position = %s', plasma_position));
-
     for i=1:n_slices
         ip_ref(i)   = equilibrium.time_slice{i}.global_quantities.ip;
-        if strcmp(plasma_position, 'geometric_axis')
-            rpl_ref(i) = equilibrium.time_slice{i}.boundary.geometric_axis.r;
-            zpl_ref(i) = equilibrium.time_slice{i}.boundary.geometric_axis.z;
-            rpl_ref(i) = geo_ref_with_fallback(rpl_ref(i), equilibrium.time_slice{i}, 'r', logger);
-            zpl_ref(i) = geo_ref_with_fallback(zpl_ref(i), equilibrium.time_slice{i}, 'z', logger);
-        elseif strcmp(plasma_position, 'current_centre')
-            cc = equilibrium.time_slice{i}.global_quantities.current_centre;
-            if ~isempty(cc.r) && cc.r > 0 && cc.r < 1e30
-                rpl_ref(i) = cc.r;
-                zpl_ref(i) = cc.z;
-            else
-                [rpl_ref(i), zpl_ref(i)] = current_centre_estimate(equilibrium.time_slice{i});
-                if isnan(zpl_ref(i))
-                    rpl_ref(i) = geo_ref_with_fallback(equilibrium.time_slice{i}.boundary.geometric_axis.r,equilibrium.time_slice{i}, 'r', logger);
-                    zpl_ref(i) = geo_ref_with_fallback(equilibrium.time_slice{i}.boundary.geometric_axis.z,equilibrium.time_slice{i}, 'z', logger);
-                end
-            end
-        else
-            rpl_ref(i) = equilibrium.time_slice{i}.global_quantities.magnetic_axis.r;
-            zpl_ref(i) = equilibrium.time_slice{i}.global_quantities.magnetic_axis.z;
-            
+        % plasma position: the current centre written by NICE in the inverse run
+        cc = equilibrium.time_slice{i}.global_quantities.current_centre;
+        if isempty(cc.r) || isempty(cc.z) || ~all(abs([cc.r cc.z]) < 1e30)
+            error('muscle_controller_NICE_IMAS_iter_init:current_centre', ...
+                  'no current centre in slice %d of the initial equilibrium: inverse run with a NICE build that writes it?', i);
         end
+        rpl_ref(i) = cc.r;
+        zpl_ref(i) = cc.z;
+        gap = equilibrium.time_slice{i}.boundary.gap;
+        for k = GAP_LIST
+            gaps_ref(k, i) = NaN;
+            if numel(gap) >= k && ~isempty(gap{k}.value) && abs(gap{k}.value) < 1e30
+                gaps_ref(k, i) = gap{k}.value;
+            end
+        end
+
     end
 
     Ipl_ref =  timeseries(ip_ref,equilibrium.time);
     Rpl_ref = timeseries(rpl_ref,equilibrium.time);
     Zpl_ref = timeseries(zpl_ref,equilibrium.time);
+    %consider the case where the separatrx is not found in the inverse
+    missing = isnan(gaps_ref(GAP_LIST, :));
+    if any(missing(:))
+        logger.warning(sprintf('gap references: %d values not found, taken from the nearest slice', nnz(missing)));
+        gaps_ref(GAP_LIST, :) = fillmissing(gaps_ref(GAP_LIST, :), 'nearest', 2);
+    end
     Gaps_ref = timeseries(gaps_ref, equilibrium.time);
+
     CSPF_curr_ref = timeseries(reference_current,equilibrium.time);
 
     enable_KCURR= double(instance.get_setting('KCURR', pyargs('default', 1)));
@@ -256,28 +252,5 @@ if instance.reuse_instance()
 
     fprintf(['\nControl over! ' num2str(simulation_time) 's of simulation for ' num2str(plasma_duration) 's of plasma.\n']);
 end
-
 instance.reuse_instance();
 
-function value = geo_ref_with_fallback(value, ts, field, logger)
-
-    persistent warned
-    if isempty(warned)
-        warned = false;
-    end
-    if isempty(value) || abs(value) > 1e30
-        outline_field = ts.boundary.outline.(field);
-        if ~isempty(outline_field)
-            value = (max(outline_field) + min(outline_field)) / 2;
-            fallback = 'outline midpoint';
-        else
-            value = ts.global_quantities.magnetic_axis.(field);
-            fallback = 'magnetic_axis';
-        end
-        if ~warned
-            logger.warning(sprintf( ...
-                ['muscle_controller_NICE_IMAS_iter_init: boundary.geometric_axis.%s was empty/sentinel, falling back to %s'], field, fallback));
-            warned = true;
-        end
-    end
-end

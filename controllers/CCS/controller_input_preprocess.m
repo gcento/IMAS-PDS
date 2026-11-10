@@ -2,14 +2,14 @@ function [Icspf,Ivs3,rpl,zpl,zdot,ip,gaps,li3,schedulingVar_RZIp] = controller_i
 % Turns the plant measurements into the controller inputs:
 % - Icspf: the 11 CS/PF circuit currents, CS1 = mean of CS1U and CS1L;
 % - Ivs3: the VS3 circuit current, (I_VS3U - I_VS3L)/2 (anti-series pair);
-% - zdot: vertical velocity. The plant's own value when it gives one (current_centre.velocity_z,
-%   set by muscle_nice2control in the global zdot_meas), else the backward difference of
-%   zpl. Optional noise (zdot_disturbance) and low pass 1/(tau*s + 1) by Tustin at the actual
-%   time step (zdot_filter, tau = 7.5 ms). The first call returns 0; a call with the same or
-%   an earlier time holds the previous value.
+% - zdot: vertical velocity of the current centre, from the equilibrium IDS
+%   (current_centre.velocity_z, passed by muscle_nice2control in the global zdot_meas).
+%   Optional noise (zdot_disturbance) and low pass 1/(tau*s + 1) by Tustin at the actual
+%   time step (zdot_filter, tau = 7.5 ms). A call with the same or an earlier time holds
+%   the previous value.
 
 global zdot_meas
-persistent last_t last_zpl last_zdot last_zdot_in
+persistent last_t last_zdot last_zdot_in
 tau = 0.0075;
 
 coil_currents = coil_currents(:);
@@ -17,17 +17,12 @@ cs1mean = (coil_currents(3) + coil_currents(4))/2;
 Icspf = [coil_currents(1:2); cs1mean; coil_currents(5:12)];
 Ivs3 = 0.5*(coil_currents(13) - coil_currents(14));
 
+zdot_in = zdot_meas;  % velocity + optional noise
 if isempty(last_t)
-    zdot_in = 0;      % derivative + noise
-    zdot = 0;         % controller input
+    zdot = zdot_in;   % controller input
 else
     dt = t - last_t;
     if dt > 0
-        if ~isempty(zdot_meas) && ~isnan(zdot_meas)
-            zdot_in = zdot_meas;                 % velocity given by the plant
-        else
-            zdot_in = (zpl - last_zpl)/dt;       % backward difference
-        end
         if evalin('base','zdot_disturbance')
             c = -0.6; % Lower bound
             d = 0.6;  % Upper bound
@@ -48,7 +43,6 @@ else
 end
 
 last_t = t;
-last_zpl = zpl;
 last_zdot_in = zdot_in;
 last_zdot = zdot;
 

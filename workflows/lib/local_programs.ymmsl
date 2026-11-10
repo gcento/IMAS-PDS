@@ -233,3 +233,8 @@ programs:
       # incomplete" (confirmed live) -- unlike the plain semicolon-separated statements
       # above, which parse fine across multiple lines.
       exec matlab -batch "try; pyenv('Version','$EBROOTPCS/muscle3_venv/bin/python','ExecutionMode','InProcess'); addpath(getenv('PCS_PATH')); run('$PDS_REPO/local_installs/nice/runmatlab/initNice4matlab.m'); pcssp_pcs_add_paths; comparisons.ExternalSCMLink.setupGitConfig(); addpath(getenv('CONTROLLER_PATH')); run(fullfile(getenv('CONTROLLER_PATH'),'muscle_controller_NICE_IMAS_iter_init.m')); catch ME; disp(getReport(ME)); exit(1); end"
+
+  diagnostics:
+    modules: IMAS-MUSCLE3/1.0.0-intel-2025b-pds
+    executable: python
+    args: -u $PDS_REPO/workflows/utils/diagnostics.py

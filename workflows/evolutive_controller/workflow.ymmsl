@@ -21,6 +21,7 @@ imports:
 #- from lib.easybuild_programs import implementation nice_evo_rd
 - from lib.local_programs import implementation magnetic_controller
 - from lib.easybuild_programs import implementation temporal_coupler
+- from lib.local_programs import implementation diagnostics
 
 models:
   evolutive_controller:
@@ -30,6 +31,7 @@ models:
       torax:   {description: transport (self-consistent ohmic + radiation; ECRH actuator imported via core_sources_in_f), implementation: torax, ports: {f_init: [equilibrium_in_f, core_profiles_in_f, core_sources_in_f], s: [equilibrium_in_s], o_i: [equilibrium_out_i, core_profiles_out_i]}}
       nice_evo_rd: {description: nice evolutive free-boundary + resistive-diffusion solve, implementation: nice_evo_rd, ports: {f_init: [equilibrium_f_init, wall_f_init, pf_active_f_init, pf_passive_f_init, iron_core_f_init, core_profiles_f_init], s: [equilibrium_s, pf_active_s, core_profiles_s], o_i: [equilibrium_o_i, pf_active_o_i]}}
       magnetic_controller: {description: PCSSP magnetic (SCDDS) controller, implementation: magnetic_controller, ports: {f_init: [equilibrium_in_f, pf_active_in_f], s: [equilibrium_in_s, pf_active_in_s], o_i: [pf_active_out_i]}}
+      diagnostics: {description: plasma-wall gaps and zdot added to the NICE equilibrium ids, implementation: diagnostics, ports: {f_init: [equilibrium_in, pf_active_in], o_f: [equilibrium_out, pf_active_out]}}
       sink_equilibrium:       {description: sink -- NICE evolutive outputs, implementation: sink_component, ports: {f_init: [equilibrium_in, pf_active_in]}}
       sink_transport:      {description: sink -- TORAX outputs, implementation: sink_component, ports: {f_init: [equilibrium_in, core_profiles_in]}}
       sink_control: {description: sink -- controller outputs, implementation: sink_component, ports: {f_init: [pf_active_in]}}
@@ -54,8 +56,11 @@ models:
       temporal_coupler.b_out_equilibrium: nice_evo_rd.equilibrium_s
       temporal_coupler.b_out_core_profiles: nice_evo_rd.core_profiles_s
 
-      nice_evo_rd.equilibrium_o_i: [temporal_coupler.b_in_equilibrium, magnetic_controller.equilibrium_in_s, sink_equilibrium.equilibrium_in, recorder_equilibrium.equilibrium_in]
-      nice_evo_rd.pf_active_o_i: [magnetic_controller.pf_active_in_s, sink_equilibrium.pf_active_in, recorder_equilibrium.pf_active_in]
+      nice_evo_rd.equilibrium_o_i: diagnostics.equilibrium_in
+      nice_evo_rd.pf_active_o_i: diagnostics.pf_active_in
+
+      diagnostics.equilibrium_out: [temporal_coupler.b_in_equilibrium, magnetic_controller.equilibrium_in_s, sink_equilibrium.equilibrium_in, recorder_equilibrium.equilibrium_in]
+      diagnostics.pf_active_out: [magnetic_controller.pf_active_in_s, sink_equilibrium.pf_active_in, recorder_equilibrium.pf_active_in]
 
       magnetic_controller.pf_active_out_i: [nice_evo_rd.pf_active_s, sink_control.pf_active_in]
-resources: {evolutive_controller.torax: {threads: 8}, evolutive_controller.nice_evo_rd: {threads: 4}, evolutive_controller.magnetic_controller: {threads: 1}, evolutive_controller.recorder_equilibrium: {threads: 1}, evolutive_controller.recorder_transport: {threads: 1}, evolutive_controller.temporal_coupler: {threads: 1}}
+resources: {evolutive_controller.torax: {threads: 8}, evolutive_controller.nice_evo_rd: {threads: 4}, evolutive_controller.magnetic_controller: {threads: 1}, evolutive_controller.recorder_equilibrium: {threads: 1}, evolutive_controller.diagnostics: {threads: 1}, evolutive_controller.recorder_transport: {threads: 1}, evolutive_controller.temporal_coupler: {threads: 1}}

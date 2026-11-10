@@ -2,11 +2,10 @@ close all
 clc
 clear
 
-run_dir = {'/home/ITER/centong/Desktop/PDSs/IMAS-PDS-torax/cases/runs/evolutive_controller_105073_20261104_143737',
-'/home/ITER/centong/Desktop/PDSs/IMAS-PDS-torax/cases/runs/evolutive_controller_105073_20261104_163447',
-'/home/ITER/centong/Desktop/PDSs/IMAS-PDS-torax/cases/runs/evolutive_controller_105073_20261104_171620'};
+run_dir = {'/home/ITER/centong/Desktop/PDSs/IMAS-PDS-torax/cases/runs/evolutive_controller_105073_20261109_112648',
+'/home/ITER/centong/Desktop/PDSs/IMAS-PDS-torax/cases/runs/evolutive_controller_105073_20261109_110429'};
 
-plot_rms = true;
+plot_rms = false;
 t_rms    = 0.1;
 
 ts ='/equilibrium/time_slice[]&';
@@ -105,7 +104,7 @@ for i = 1:numel(run_dirs)
     end
 end
 if numel(unique({R.case_dir})) > 1
-    warning('The runs come from different cases: the KCURR reference and the F_INIT slices shown are those of the first run.');
+    warning('The runs come from different cases: the F_INIT slices shown are those of the first run.');
 end
 colors = lines(numel(R));
 t_lim = [min(arrayfun(@(r) r.csv.time(1), R)), max(arrayfun(@(r) r.csv.time(end), R))];
@@ -159,10 +158,11 @@ for k = 1:numel(coil_names)
     for i = 1:numel(R)
         h_run(i) = plot(R(i).pfa.time, coil(R(i).pfa, coil_names{k}) / 1e3, 'Color', colors(i,:));
     end
-    if coil_circ(k) > 0
-        h_ref = plot(t_csv, csv_ctrl.CSPF_curr_ref(:, coil_circ(k)) / 1e3, 'r--');
+    if coil_circ(k) > 0                        % the KCURR reference of each run (it moves with the Ip control)
+        for i = 1:numel(R)
+            h_ref(i) = plot(R(i).csv.time, R(i).csv.CSPF_curr_ref(:, coil_circ(k)) / 1e3, '--', 'Color', colors(i,:));
+        end
     end
-    h_finit = plot(ref.time, coil(ref, coil_names{k}) / 1e3, 'ko', 'MarkerSize', 4);
     xlim(t_lim); grid on
     title(coil_names{k}); xlabel('t [s]'); ylabel('I [kA]');
     if plot_rms                                % RMS of I - I(t0) from t0 + t_rms, one line per run
@@ -174,8 +174,8 @@ for k = 1:numel(coil_names)
         end
     end
     if k == 1
-        lg = legend([h_run, h_ref, h_finit], [strcat({'measured '}, {R.label}), ...
-            {'reference seen by KCURR', 'F\_INIT slices'}]);
+        lg = legend([h_run, h_ref], [strcat({'measured '}, {R.label}), ...
+            strcat({'reference seen by KCURR '}, {R.label})]);
         lg.Layout.Tile = 'east';
     end
 end
