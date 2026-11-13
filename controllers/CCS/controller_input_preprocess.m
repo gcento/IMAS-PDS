@@ -1,51 +1,43 @@
-function [Icspf,Ivs3,rpl,zpl,zdot,ip,gaps,li3,schedulingVar_RZIp] = controller_input_preprocess(coil_currents,rpl,zpl,ip,gaps,li3,schedulingVar_RZIp,t)
-% Turns the plant measurements into the controller inputs:
+function [Icspf,Ivs3,zdot] = controller_input_preprocess(coil_currents,ip,zdot,t)
+% Plant measurements -> controller inputs:
 % - Icspf: the 11 CS/PF circuit currents, CS1 = mean of CS1U and CS1L;
-% - Ivs3: the VS3 circuit current, (I_VS3U - I_VS3L)/2 (anti-series pair);
-% - zdot: vertical velocity of the current centre, from the equilibrium IDS
-%   (current_centre.velocity_z, passed by muscle_nice2control in the global zdot_meas).
-%   Optional noise (zdot_disturbance) and low pass 1/(tau*s + 1) by Tustin at the actual
-%   time step (zdot_filter, tau = 7.5 ms). A call with the same or an earlier time holds
-%   the previous value.
+% - Ivs3:  the VS3 circuit current, (I_VS3U - I_VS3L)/2 (anti-series pair);
+% - zdot:  current-centre vertical velocity, with optional noise (zdot_disturbance) and
+%          low-pass filter 1/(tau s + 1) (zdot_filter); both are settings read by the init.
 
-global zdot_meas
-persistent last_t last_zdot last_zdot_in
-tau = 0.0075;
+persistent last_t last_zdot_in last_zdot
+tau = 0.0075;       % [s] filter time constant
 
 coil_currents = coil_currents(:);
-cs1mean = (coil_currents(3) + coil_currents(4))/2;
-Icspf = [coil_currents(1:2); cs1mean; coil_currents(5:12)];
-Ivs3 = 0.5*(coil_currents(13) - coil_currents(14));
+Icspf = [coil_currents(1:2); (coil_currents(3) + coil_currents(4))/2; coil_currents(5:12)];
+Ivs3 = (coil_currents(13) - coil_currents(14))/2;
 
-zdot_in = zdot_meas;  % velocity + optional noise
-if isempty(last_t)
-    zdot = zdot_in;   % controller input
-else
-    dt = t - last_t;
-    if dt > 0
-        if evalin('base','zdot_disturbance')
-            c = -0.6; % Lower bound
-            d = 0.6;  % Upper bound
-            noise = sqrt(3)*(c + (d - c)*rand(1))*sqrt(0.0005/dt); %rms = 0.6m/s at dt = 0.5ms
-            zdot_in = zdot_in + noise;
-        end
-        if evalin('base','zdot_filter')                 
-            a = (2*tau - dt)/(2*tau + dt);
-            b = dt/(2*tau + dt);
-            zdot = a*last_zdot + b*(zdot_in + last_zdot_in);
-        else
-            zdot = zdot_in;
-        end
-    else
-        zdot_in = last_zdot_in;
-        zdot = last_zdot;
-    end
+if abs(ip) <= 100
+    error('controller_input_preprocess: plasma current is almost 0');
 end
 
+% zdot: unchanged at the first call; held when the time does not advance;
+% otherwise noise, then the filter discretized (Tustin) at the actual time step
+if isempty(last_t)
+    zdot_in = zdot;
+elseif t <= last_t
+    zdot_in = last_zdot_in;
+    zdot = last_zdot;
+else
+    dt = t - last_t;
+    zdot_in = zdot;
+    if evalin('base','zdot_disturbance')
+        zdot_in = zdot_in + 0.6*sqrt(3)*(2*rand - 1)*sqrt(0.0005/dt);   % rms 0.6 m/s at dt = 0.5 ms
+    end
+    if evalin('base','zdot_filter')
+        a = (2*tau - dt)/(2*tau + dt);
+        b = dt/(2*tau + dt);
+        zdot = a*last_zdot + b*(zdot_in + last_zdot_in);
+    else
+        zdot = zdot_in;
+    end
+end
 last_t = t;
 last_zdot_in = zdot_in;
 last_zdot = zdot;
-
-if abs(ip) <= 100
-    error("plasma current is almost 0");
 end

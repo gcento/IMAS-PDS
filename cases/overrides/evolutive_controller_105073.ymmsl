@@ -17,6 +17,7 @@ settings:
   magnetic_controller.VS: 1
   magnetic_controller.VS_control_mode: 3  #{'Off (0)'; 'VS1 (1)'; 'VS3 (2)'; 'VS1+VS3 (3)'}
   magnetic_controller.PSModel: 1
+  magnetic_controller.shape_control: 4 # 2 isoflux limiter, 3 isoflux X-point, 4 gaps
   magnetic_controller.in_out_msg_dt: 0.001
   magnetic_controller.nice_signs: 1
 

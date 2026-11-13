@@ -1,152 +1,139 @@
-function [coils_current,rpl,zpl,ip,gaps,li3,schedulingVar_RZIp,t_out,stop_signal] = muscle_nice2control()
+function [coils_current,rpl,zpl,zdot,ip,r_xp,z_xp,psi_xp,PsiLimiter,flux_contr,gaps,li3,schedulingVar_RZIp,t_out,stop_signal] = muscle_nice2control()
+% Receives the NICE equilibrium and pf_active from MUSCLE3 and returns the controller
+% measurements. Called by the CODAC_input block at every step.
 
-global z_cur
-% Vertical velocity of the current centre, from the equilibrium IDS (current_centre.velocity_z,
-% written by the diagnostics actor), read by controller_input_preprocess
-global zdot_meas
-
-% retrieve instance object from base ws
 instance = evalin('base','instance');
 logger = evalin('base','logger');
 
-% Holds the last accepted measurement across calls, for the output_flag=-1
-% case below (persists for the lifetime of the MATLAB session/model).
-persistent last_coils_current last_rpl last_zpl last_ip last_t_out last_gaps last_li3 last_schedulingVar_RZIp finished
-persistent last_zdot_meas
-% Set once nice_evo_rd sends its final message (next_timestamp=None). The
-% Stop Simulation block this feeds only halts at the end of the current
-% step, so this same function still gets called again on a later step --
+persistent last         % the last valid measurements, in the order of the outputs
+persistent last_t_out finished
+persistent F_flux       % psi interpolant on NICE's mesh, built once
 
-N_GAPS=62;
-li3=0;
-t_out=0;
-stop_signal=0;
-rpl=0;
-zpl=0;
-ip=0;
-gaps = zeros(N_GAPS,1);
-coils_current=zeros(14,1);
-schedulingVar_RZIp=zeros(3,1); %time,li,elongation
-if isempty(last_zdot_meas)
-    last_zdot_meas = 0;
-end
-zdot_meas = last_zdot_meas;     % held by the early returns below
+%% initialization
+coils_current = zeros(14,1);
+rpl = 0;
+zpl = 0;
+zdot = 0;
+ip = 0;
+r_xp = NaN;             % NaN until the first X-point is found
+z_xp = NaN;
+psi_xp = NaN;
+PsiLimiter = 0;
+flux_contr = zeros(62,1);
+gaps = zeros(62,1);
+li3 = 0;
+schedulingVar_RZIp = zeros(3,1);    % [t, li3, elongation]
+t_out = 0;
+stop_signal = 0;
 
-if isequal(finished, true)
-    coils_current = last_coils_current;
-    rpl = last_rpl;
-    zpl = last_zpl;
-    ip = last_ip;
-    gaps = last_gaps;
-    schedulingVar_RZIp = last_schedulingVar_RZIp;
-    li3 = last_li3;
+% start from the last measurements: what is not found below keeps its last value
+if ~isempty(last)
+    [coils_current,rpl,zpl,zdot,ip,r_xp,z_xp,psi_xp,PsiLimiter,flux_contr,gaps,li3,schedulingVar_RZIp] = last{:};
     t_out = last_t_out;
-    stop_signal = 1;
-    return;
 end
 
-% nice_evo_rd closes its output port directly once it reaches its own
-% t_end, rather than sending one more message flagged next_timestamp=None
-% -- so the receive() for that (never-coming) message throws
-% "Port ... was closed while trying to receive on it" instead of the
-% t_next-is-None branch below ever running. Treat that the same way: stop
-% cleanly on the last accepted measurement (confirmed live).
+%% receive
+% after the last message: keep returning the last measurements with stop_signal = 1
+if isequal(finished, true)
+    stop_signal = 1;
+    return
+end
+
+% nice_evo_rd closes its port at its t_end instead of sending a next_timestamp=None
+% message: stop cleanly on the last measurements
 try
     msg_eq = instance.receive("equilibrium_in_s");
     msg_pfa = instance.receive("pf_active_in_s");
 catch ME
-    if contains(ME.message, 'was closed while trying to receive')
-        logger.warning('muscle_nice2control: peer port closed without a next_timestamp=None sentinel, stopping cleanly');
-        coils_current = last_coils_current;
-        rpl = last_rpl;
-        zpl = last_zpl;
-        ip = last_ip;
-        gaps = last_gaps;
-        t_out = last_t_out;
-        li3 = last_li3;
-        schedulingVar_RZIp = last_schedulingVar_RZIp;
-        stop_signal = 1;
-        finished = true;
-        return;
+    if ~contains(ME.message, 'was closed while trying to receive')
+        rethrow(ME);
     end
-    rethrow(ME);
+    logger.warning('muscle_nice2control: peer port closed, stopping cleanly');
+    finished = true;
+    stop_signal = 1;
+    return
 end
 
 t_out = msg_eq.timestamp;
-t_next = msg_eq.next_timestamp;
 last_t_out = t_out;
-
-if isequal(t_next, py.None)
-    stop_signal  = 1;
+if isequal(msg_eq.next_timestamp, py.None)    % last message
     finished = true;
+    stop_signal = 1;
 end
 
-equilibrium_serial=uint8(msg_eq.data);
-equilibrium = imas_deserialize(equilibrium_serial,'equilibrium');
+equilibrium = imas_deserialize(uint8(msg_eq.data), 'equilibrium');
+pf_active = imas_deserialize(uint8(msg_pfa.data), 'pf_active');
 
-pf_active_serial=uint8(msg_pfa.data);
-pf_active=imas_deserialize(pf_active_serial,'pf_active');
-
+% a rejected NICE step (output_flag = -1) repeats the previous state: keep the last measurements
 eq_flag = double(equilibrium.code.output_flag);
 pfa_flag = double(pf_active.code.output_flag);
-is_stale = (~isempty(eq_flag) && eq_flag(1) == -1) || (~isempty(pfa_flag) && pfa_flag(1) == -1);
-
-if is_stale && ~isempty(last_ip)
-    logger.warning(sprintf('muscle_nice2control: received output_flag=-1 at t=%g, holding last valid measurement', t_out));
-    coils_current = last_coils_current;
-    rpl = last_rpl;
-    zpl = last_zpl;
-    ip = last_ip;
-    gaps = last_gaps;
-    li3 = last_li3;
-    schedulingVar_RZIp = last_schedulingVar_RZIp;
-else
-    %NEW QUANTITIES
-    gq = equilibrium.time_slice{1}.global_quantities;
-    ip = gq.ip;
-    % plasma position and vertical velocity: the current centre, written by NICE (r, z) and
-    % by the diagnostics actor (velocity_z)
-    cc = gq.current_centre;
-    if ~is_filled(cc.r) || ~is_filled(cc.z) || ~is_filled(cc.velocity_z)
-        error('muscle_nice2control: no current centre or no current_centre.velocity_z at t = %g (NICE build without current_centre, or no diagnostics actor in the workflow?)', t_out);
-    end
-    rpl = cc.r;
-    zpl = cc.z;
-    zdot_meas = cc.velocity_z;
-    last_zdot_meas = zdot_meas;
-
-    GAP_LIST = evalin('base', 'GAP_LIST');
-    gap = equilibrium.time_slice{1}.boundary.gap;
-    for k = GAP_LIST
-        if numel(gap) >= k && ~isempty(gap{k}.value) && abs(gap{k}.value) < 1e30
-            gaps(k) = gap{k}.value;
-        elseif ~isempty(last_gaps)
-            gaps(k) = last_gaps(k);   % gap not found: hold the last value
-        end
-    end
-    
-    for ii=1:length(pf_active.coil)
-       coil=struct(pf_active.coil{ii});
-       coils_current(ii)= coil.current.data;
-    end
-    li3 = equilibrium.time_slice{1}.global_quantities.li_3;
-    kappa = equilibrium.time_slice{1}.boundary.elongation;
-    schedulingVar_RZIp = [t_out; li3; kappa];
-
-    last_coils_current = coils_current;
-    last_rpl = rpl;
-    last_zpl = zpl;
-    last_ip = ip;
-    last_gaps = gaps;
-    last_li3 = li3;
-    last_schedulingVar_RZIp = schedulingVar_RZIp;
+rejected = (~isempty(eq_flag) && eq_flag(1) == -1) || (~isempty(pfa_flag) && pfa_flag(1) == -1);
+if rejected && ~isempty(last)
+    logger.warning(sprintf('muscle_nice2control: output_flag=-1 at t=%g, holding the last measurements', t_out));
+    return
 end
 
-z_cur = zpl;
+%% measurements
+ts = equilibrium.time_slice{1};
+gq = ts.global_quantities;
+cc = gq.current_centre;
+bd = ts.boundary;
 
+% unset IDS floats arrive as -9e40, unset arrays as []
+vals = [gq.ip, cc.r, cc.z, cc.velocity_z, gq.li_3, bd.elongation];
+if numel(vals) ~= 6 || any(abs(vals) > 1e30)
+    error('muscle_nice2control: ip, current centre (with velocity_z), li_3 or elongation missing at t=%g', t_out);
+end
+ip = gq.ip;
+rpl = cc.r;
+zpl = cc.z;
+zdot = cc.velocity_z;
+li3 = gq.li_3;
+schedulingVar_RZIp = [t_out; li3; bd.elongation];
+
+for k = 1:numel(pf_active.coil)
+    coil = struct(pf_active.coil{k});
+    coils_current(k) = coil.current.data;
 end
 
-function ok = is_filled(v)
-ok = ~isempty(v) && isfinite(v(1)) && abs(v(1)) < 1e30;
+% gaps, written by the diagnostics actor; a gap not found keeps its last value
+GAP_LIST = evalin('base', 'GAP_LIST');
+gap = bd.gap;
+for k = GAP_LIST
+    if numel(gap) >= k && ~isempty(gap{k}.value) && abs(gap{k}.value) < 1e30
+        gaps(k) = gap{k}.value;
+    end
 end
 
+% X-point: the saddle node of contour_tree; none in a limited plasma (last value kept)
+for k = 1:numel(ts.contour_tree.node)
+    node = ts.contour_tree.node{k};
+    if node.critical_type == 1
+        r_xp = node.r;
+        z_xp = node.z;
+        psi_xp = node.psi;
+        break
+    end
+end
+if isnan(r_xp) && evalin('base', 'ShapeIpControlMode') == 3
+    error('muscle_nice2control: mode 3 needs a diverted plasma, no X-point at t=%g', t_out);
+end
+
+% isoflux: psi at the control points and at the limiter point, interpolated on NICE's mesh.
+% The mesh is the same at every step, so the interpolant is built once.
+if numel(ts.ggd) >= 1 && numel(ts.ggd{1}.psi) >= 1 && ~isempty(ts.ggd{1}.psi{1}.values)
+    g = ts.ggd{1};
+    psi_nodes = g.psi{1}.values(:);
+    if isempty(F_flux) || numel(F_flux.Values) ~= numel(psi_nodes)
+        F_flux = scatteredInterpolant(g.r{1}.values(:), g.z{1}.values(:), psi_nodes);
+    else
+        F_flux.Values = psi_nodes;
+    end
+    R_pts = evalin('base', 'RfluxCTRpts');
+    Z_pts = evalin('base', 'ZfluxCTRpts');
+    flux_contr(1:numel(R_pts)) = F_flux(R_pts(:), Z_pts(:));
+    PsiLimiter = F_flux(evalin('base', 'R_lim'), evalin('base', 'Z_lim'));
+end
+
+last = {coils_current,rpl,zpl,zdot,ip,r_xp,z_xp,psi_xp,PsiLimiter,flux_contr,gaps,li3,schedulingVar_RZIp};
+end
