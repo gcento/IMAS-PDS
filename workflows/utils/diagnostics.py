@@ -1,10 +1,12 @@
 """
-MUSCLE3 actor between NICE and the magnetic controller. It adds two diagnostics to every
+MUSCLE3 actor between NICE and the magnetic controller. It adds three diagnostics to every
 equilibrium it forwards:
 - the plasma-wall gaps along the gap lines
   (time_slice[:].boundary.gap);
 - the vertical velocity of the current centre, by backward difference
-  (time_slice[:].global_quantities.current_centre.velocity_z).
+  (time_slice[:].global_quantities.current_centre.velocity_z);
+- the X-point moved from NICE's mesh node to the saddle of a local quadratic fit of psi
+  (time_slice[:].contour_tree.node with critical_type 1).
 """
 import logging
 from pathlib import Path
@@ -32,6 +34,29 @@ def psi_on_mesh(ts) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     if len(ggd.r) == 0 or len(ggd.z) == 0 or len(ggd.psi) == 0:
         return None
     return np.asarray(ggd.r[0].values), np.asarray(ggd.z[0].values), np.asarray(ggd.psi[0].values)
+
+
+def fit_quadratic_xpoint(ts, r: np.ndarray, z: np.ndarray, psi: np.ndarray) -> None:
+    """Moves the X-point (contour_tree node with critical_type 1, a mesh node in NICE) to the
+    saddle of psi ~ c0 + c1 x + c2 y + c3 x^2 + c4 x y + c5 y^2, fitted by least squares on
+    the nodes within XPOINT_FIT_RADIUS. The node is left as it is when no saddle is found near it."""
+    for node in ts.contour_tree.node:
+        if node.critical_type == 1:
+            r0, z0 = float(node.r), float(node.z)
+            near = np.hypot(r - r0, z - z0) < 0.10
+            if np.count_nonzero(near) < 6:
+                return
+            x, y = r[near] - r0, z[near] - z0
+            A = np.column_stack([np.ones_like(x), x, y, x**2, x * y, y**2])
+            c = np.linalg.lstsq(A, psi[near], rcond=None)[0]
+            H = np.array([[2 * c[3], c[4]], [c[4], 2 * c[5]]])   # Hessian of the fit
+            if np.linalg.det(H) >= 0:                             # not a saddle
+                return
+            s = -np.linalg.solve(H, c[1:3])                       # where grad psi = 0
+            if np.hypot(s[0], s[1]) < 0.05:
+                node.r = r0 + s[0]
+                node.z = z0 + s[1]
+            return
 
 
 class GapLines:
@@ -98,7 +123,8 @@ class BackwardDifference:
 
 
 def add_diagnostics(data: bytes, gap_lines: GapLines, zdot: BackwardDifference) -> bytes:
-    """Serialized equilibrium -> the same equilibrium with gaps and current-centre velocity."""
+    """Serialized equilibrium -> the same equilibrium with gaps, current-centre velocity and
+    the refined X-point."""
     equilibrium = IDSFactory().new("equilibrium")
     equilibrium.deserialize(data)
     output_flag = equilibrium.code.output_flag
@@ -108,6 +134,7 @@ def add_diagnostics(data: bytes, gap_lines: GapLines, zdot: BackwardDifference) 
         if mesh is not None and abs(psi_b) < 1e30:   # NaN and empty (-9e40) fail this test
             r, z, psi = mesh
             gap_lines.write(ts, gap_lines.gaps(r, z, psi - psi_b))
+            fit_quadratic_xpoint(ts, r, z, psi)
 
         # velocity_z is written whenever the current centre is: 0 at the first step, and the
         # last one at a step NICE rejected (output_flag < 0), which repeats the previous state
