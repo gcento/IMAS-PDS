@@ -6,8 +6,6 @@ settings:
   source.t_max: 130.0
   #source.dt: 1
   torax.python_config_module: ${PDS_REPO}/cases/overrides/evolutive_controller_105073_config_torax.py
-  torax.psi_from_equilibrium: True
-
   torax.t_final: 87.0
   nice_evo_rd.t_end: 87.0
 
