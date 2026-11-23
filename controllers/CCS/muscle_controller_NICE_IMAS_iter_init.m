@@ -9,6 +9,10 @@
 % The model runs from t = 0, on NICE's steps: plasma time = Simulink time + t_start.
 % With the setting psc_enabled = 1 the PSC block of the model (pulse supervision, pcssp-nightly)
 % gets its configuration from psc_config_dir.
+% With the setting mcls_enabled = 1 (requires psc_enabled = 1) the model pcssp_controller_and_ps_mcls runs instead:
+% the same model plus the MCLS (Magnetic Control Local Supervisor) block, whose outputs drive the mode inputs of
+% KCURR, RZIp and VS (and of ShapeIp when mcls_shape_enable = 1); mode table from the YAML file mcls_config
+% (controllers/CCS/mcls/mcls_load_table.m), log RUN_DIR/mcls_log.csv. With mcls_enabled = 0 nothing changes.
 
 fprintf('Controller Initialization\n')
 
@@ -68,18 +72,41 @@ if instance.reuse_instance()
     if psc_enabled
         psc_config_dir = char(instance.get_setting('psc_config_dir'));                          % folder with the four PSC files
     end
+    t_offset = t_start;   % alias read by mcls_log_row.m and the MCLS block's clock constant (MCLS_clock_offset)
+    mcls_enabled = double(instance.get_setting('mcls_enabled', pyargs('default', 0)));          % 1: MCLS in the model
+    controller_model = 'pcssp_controller_and_ps';
+    if mcls_enabled
+        % MCLS: model with the MCLS block, mode table (four Parameter data of the block, base workspace)
+        if ~psc_enabled
+            error('muscle_controller_NICE_IMAS_iter_init:mcls', 'mcls_enabled = 1 needs psc_enabled = 1 (the MCLS takes ForceControlMode from the PSC bus)');
+        end
+        controller_model = 'pcssp_controller_and_ps_mcls';
+        mcls_dir = fullfile(getenv('CONTROLLER_PATH'), 'mcls');
+        addpath(mcls_dir, fullfile(mcls_dir, 'third_party'));
+        mcls_config = char(instance.get_setting('mcls_config'));                                % mode-table YAML (required)
+        mcls_shape_enable = double(instance.get_setting('mcls_shape_enable', pyargs('default', 0)));   % 1: ShapeIp modes from the MCLS
+        [MCMode, StartingMode, NAlarms, NEnablingConditions, mcls_info] = mcls_load_table(mcls_config, ...
+            fullfile(mcls_dir, 'mcls_library_defaults.yaml'), fullfile(getenv('RUN_DIR'), 'mcls_diary.txt'));
+        logger.info(sprintf('MCLS table %s: %d mode(s) [%s], StartingMode %d, shape guard enable %d; model %s', ...
+            mcls_config, numel(MCMode), strjoin(strtrim(mcls_info.MCModeNames), ', '), StartingMode, mcls_shape_enable, controller_model));
+    end
 
     %% controlled gaps and isoflux control points
     GAP_LIST = [3 8 15 21 25 48];   % the gaps used by shapeIp_CCS (nonzero columns of its Proj)
     N_GAPS = 62;
     N_FLUX = 62;                    % flux inputs of shapeIp_CCS; only the first numel(RfluxCTRpts) are used
-    % PLACEHOLDER: control points of the CREATE test case TC_CCS_01 (3 MA limited plasma),
-    % not designed for this shot. Replace them before using mode 2 or 3.
-    RfluxCTRpts = [4.362071 4.1486759 5.1894636 7.0161489 8.137644 7.0624581];   % [m]
-    ZfluxCTRpts = [-1.5 1.5492 3.2382093 2.6846939 0.62839253 -2.0424846];
-    R_lim = 4.1053;                 % limiter point [m]: where the plasma touches the wall in mode 2
+    % RR3/ZZ3 of the pcs XPT02 case (copy_setup_pcs_params_pcs_expert.m:466-494) without its 9th point, the
+    % X-point reference: here the reference flux of mode 3 is the measured psi_xp (at the saddle, or at the
+    % reference X-point rxp_ref/zxp_ref with xp_flux_at_ref = 1, as the pcs XPT02 case evaluates FluxXP_est)
+    RfluxCTRpts = [4.3863 4.2220 5.1385 7.2929 8.1866 7.0307 4.6170 5.2594];   % [m]
+    ZfluxCTRpts = [-1.5 1.5492 3.5094 2.9244 0.6292 -2.0128 -3.6807 -3.9861];
+    if ShapeIpControlMode == 2      % limited plasma: the first six points and the touch point (RR2/ZZ2)
+        RfluxCTRpts = [RfluxCTRpts(1:6) 4.1000];
+        ZfluxCTRpts = [ZfluxCTRpts(1:6) 0.7500];
+    end
+    R_lim = 4.1053;                 % fixed limiter point [m]: PsiLimiter of muscle_nice2control.m outside mode 2 (mode 2 uses psi_boundary)
     Z_lim = 0.6039;
-    FLUX_CTR_PLACEHOLDER = true;
+    flux_scale = double(instance.get_setting('isoflux_flux_scale', pyargs('default', 1)));   % scales the fluxes seen by shapeIp_CCS (references and measurements)
 
     %% references: one value per slice of the reference equilibrium
     n_slices = length(equilibrium.time_slice);
@@ -125,7 +152,7 @@ if instance.reuse_instance()
         g = ts.ggd{1};
         F = scatteredInterpolant(g.r{1}.values(:), g.z{1}.values(:), g.psi{1}.values(:));
         psi_pts_ref(:, i) = F(RfluxCTRpts(:), ZfluxCTRpts(:));
-        psi_lim_ref(i) = F(R_lim, Z_lim);
+        psi_lim_ref(i) = ts.global_quantities.psi_boundary;   % limited plasma: the touch-point flux is the boundary flux
     end
 
     % slices without separatrix or X-point take the value of the nearest slice
@@ -142,15 +169,17 @@ if instance.reuse_instance()
         psixp_ref = fillmissing(psixp_ref, 'nearest');
     end
 
-    % isoflux reference: psi(control point) - psi(boundary), where the boundary flux is the
-    % limiter point's in mode 2 and the X-point's in mode 3; 0 when the point is on the boundary
-    if FLUX_CTR_PLACEHOLDER && any(ShapeIpControlMode == [2 3])
-        error('isoflux control points are placeholders: set the right ones before mode 2 or 3');
-    end
+    % isoflux reference: psi(control point) - psi(boundary), where the boundary flux is
+    % global_quantities.psi_boundary in mode 2 and the X-point's in mode 3; 0 when the point is on the boundary
     if ShapeIpControlMode == 3 && all(xp_missing)
         error('mode 3: no X-point in the reference equilibrium');
     end
     n_ctr = numel(RfluxCTRpts);
+    flux_sign = sign(mean(ip_ref)) + (mean(ip_ref) == 0);   % shapeIp_CCS is designed for Ip > 0: fluxes taken to that frame
+    flux_scale = flux_sign * flux_scale;
+    psi_pts_ref = flux_scale * psi_pts_ref;
+    psi_lim_ref = flux_scale * psi_lim_ref;
+    psixp_ref = flux_scale * psixp_ref;
     dpsi_ref = zeros(N_FLUX, n_slices);
     if ShapeIpControlMode == 2
         dpsi_ref(1:n_ctr, :) = psi_pts_ref - psi_lim_ref;
@@ -172,11 +201,22 @@ if instance.reuse_instance()
     %% fixed controller parameters (Constant blocks of the model)
     schedulingVar_KCURR = 0;
     IpControlMode_RZIp = 0;         % schedulingVar_RZIp = [t, li3, elongation] comes from the measurements
+    % sign of the R and Z errors fed to RZIp_CCS (designed for Ip > 0): both flipped when Ip < 0 (IMAS); the earlier Z runaway came from the VS3 current polarity (controller_input_preprocess.m)
+    RZIp_R_sign = double(instance.get_setting('RZIp_R_sign', pyargs('default', sign(mean(ip_ref)) + (mean(ip_ref) == 0))));
+    RZIp_Z_sign = double(instance.get_setting('RZIp_Z_sign', pyargs('default', RZIp_R_sign)));
     VSIpScaling = 1;                % VS action scaled with: 1 nominal Ip, 2 estimated Ip
     SchedulingVar_ShapeContr = VSControlMode;   % gain region of shapeIp_CCS (its two regions are identical today)
-    SCIpScaling = 1;                % shape action scaled with: 0 nominal Ip, 1 Ip_ref, 2 Ip_est
+    % shape action scaled with: 0 nominal Ip, 1 Ip_ref, 2 Ip_est. Default 1: Ip_ref/Ipl_nominal < 0 in the IMAS frame gives the
+    % geometric errors (gaps, X-point position) the frame flip they need; the fluxes are already in the design frame (flux_sign)
+    SCIpScaling = double(instance.get_setting('SC_Ip_scaling', pyargs('default', 1)));
+    xp_flux_at_ref = double(instance.get_setting('xp_flux_at_ref', pyargs('default', 0)));   % 1: mode 3 psi_xp at the reference X-point (muscle_nice2control.m)
     IpControlMode = 0;              % Ip control inside the CCS: 0 off, 1 with KCURR, 2 with the shape controller
     AllocatorMode = 1;
+    save(fullfile(getenv('RUN_DIR'), 'isoflux_refs.mat'), 'RfluxCTRpts', 'ZfluxCTRpts', 'dpsi_ref', 'rxp_ref', 'zxp_ref', 't_ref', 't_start', 'flux_scale', 'flux_sign', 'SCIpScaling', 'xp_flux_at_ref', 'RZIp_R_sign', 'RZIp_Z_sign');
+    % isoflux_log.csv: one row per step received by muscle_nice2control.m
+    f = fopen(fullfile(getenv('RUN_DIR'), 'isoflux_log.csv'), 'w');
+    fprintf(f, 't,%s,psi_xp,r_xp,z_xp,zpl,ip,psi_lim\n', strjoin(compose('flux_%d', 1:8), ','));
+    fclose(f);
 
     logger.info(sprintf('exchange period in_out_dt = %g s', in_out_dt));
 
@@ -191,15 +231,17 @@ if instance.reuse_instance()
 
     obj3 = pcssp_VS_obj();
     obj3.init;
-
+    % VS gains from FC016 instead of the module's defaults
     S = load(fullfile(getenv('CONTROLLER_PATH'), 'params/FC016_Config_VS.mat'), 'Config_VS');
+    S.Config_VS.Gains.KIVS1_VS13 = -S.Config_VS.Gains.KIVS1_VS13;   % keeps VS1 = -0.1*(I_VS3U-I_VS3L)/2 with the VS3 polarity of controller_input_preprocess.m
     fp = ccs_vs_fp(obj3, S.Config_VS);
-    if isprop(obj3,'ddHdl') && ~isempty(obj3.ddHdl) && ismethod(obj3.ddHdl,'updateField')
+    if isprop(obj3, 'ddHdl') && ~isempty(obj3.ddHdl) && ismethod(obj3.ddHdl, 'updateField')
+        % scdds-core 6b7e482 (pcssp-nightly merge_IGZ_PSC): update_nominal_param_value calls ddHdl.updateValue,
+        % absent from SCDDSclass_ddHdl (renamed updateField, SCDDSclass_ddHdl.m:189-230; SCDDSclass_algo.m:1023-1026)
         obj3.ddHdl.updateField('VS_fp', fp);
-    else 
+    else
         obj3.update_nominal_param_value('VS_fp', fp);
     end
-    obj3.ddHdl.replaceOrCreateEntry('VS_fp', ccs_vs_fp(obj3, S.Config_VS));
     fprintf('VS gains from FC016_Config_VS.mat (KZ_VS1 = %g)\n', S.Config_VS.Gains.KZ_VS1);
     obj3.setup;
 
@@ -219,7 +261,7 @@ if instance.reuse_instance()
     SCDconf_setConf('pcssp_Simulation', 'configurations_container_pcssp.sldd');
 
     % data dictionary of the top model: links the modules' dictionaries and the base workspace
-    top_dd_file = fullfile(fileparts(which('pcssp_controller_and_ps.slx')), 'pcssp_controller_and_ps.sldd');
+    top_dd_file = fullfile(fileparts(which([controller_model '.slx'])), [controller_model '.sldd']);
     if isfile(top_dd_file)
         top_dd = Simulink.data.dictionary.open(top_dd_file);
     else
@@ -238,20 +280,34 @@ if instance.reuse_instance()
     end
     close(top_dd);
     set_param(0, 'ErrorIfLoadNewModel', 'off');   % pcssp-nightly PSC.slx (in the model) is saved by a newer MATLAB
-    load_system('pcssp_controller_and_ps');
-    set_param('pcssp_controller_and_ps', 'DataDictionary', 'pcssp_controller_and_ps.sldd');
+    load_system(controller_model);
+    set_param(controller_model, 'DataDictionary', [controller_model '.sldd']);
     if psc_enabled
         % the PSC block (Subsystem Reference to PSC) gets its four files
-        psc_blk = find_system('pcssp_controller_and_ps', 'LookUnderMasks', 'all', 'ReferencedSubsystem', 'PSC');
+        psc_blk = find_system(controller_model, 'LookUnderMasks', 'all', 'ReferencedSubsystem', 'PSC');
         if isempty(psc_blk)
             error('psc_enabled = 1 but the model has no PSC block (Subsystem Reference to PSC)');
         end
         psc_setup_block(psc_blk{1}, psc_config_dir);
         logger.info(sprintf('PSC configured from %s', psc_config_dir));
     end
+    if mcls_enabled
+        % MCLS log (mcls_log_row.m; columns = MCLS_mux order of the model, then the NAlarms alarms and the
+        % NEnablingConditions enabling conditions)
+        mcls_csv = fullfile(getenv('RUN_DIR'), 'mcls_log.csv');
+        if exist(mcls_csv, 'file'), delete(mcls_csv); end
+        f = fopen(mcls_csv, 'w');
+        hdr = {'t_abs','t_sim','ControlModeIndex','ShapeIpControlMode','IpControlMode','VSControlMode','SCIpScaling', ...
+            'VSIpScaling','SNUControl','CurrentLimitAvoidance','VS3_kick_volt_on','RefSmoothTrans','HL_contr_on', ...
+            'LH_contr_on','FWHLP_contr_on','EmShutDown_contr_on','ForceControlMode','Ipl_est_pcs','mcls_time'};
+        for k = 1:NAlarms, hdr{end+1} = sprintf('alarm_%d', k); end %#ok<AGROW>
+        for k = 1:NEnablingConditions, hdr{end+1} = sprintf('cond_%d', k); end %#ok<AGROW>
+        fprintf(f, '%s\n', strjoin(hdr, ','));
+        fclose(f);
+    end
 
     %% simulation
-    in = Simulink.SimulationInput('pcssp_controller_and_ps');
+    in = Simulink.SimulationInput(controller_model);
     in = in.setModelParameter('StartTime', '0', 'StopTime', num2str(t_max - t_start, 12));
     in = in.setModelParameter('SaveOutput', 'on');
 
@@ -306,7 +362,7 @@ if instance.reuse_instance()
     fprintf('Start closed loop\n')
     tic;
     logs = sim(in);
-    close_system('pcssp_controller_and_ps', 0);
+    close_system(controller_model, 0);
     simulation_time = toc;
     plasma_duration = t_max - t_start;
     fprintf(['\nControl over! ' num2str(simulation_time) 's of simulation for ' num2str(plasma_duration) 's of plasma.\n']);
