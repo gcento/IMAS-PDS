@@ -1,8 +1,15 @@
 globals:
   dd_version: 4.0.0
   imports:
-    input: "imas:hdf5?path=${CASE_DIR}/preprocess/in"
-    input_md: "imas:hdf5?path=${CASE_DIR}/preprocess/in"
+    input: "imas:hdf5?path=/home/ITER/schneim/public/git/pds-student/cases/inverse_convergence_105073/preprocess/in"
+    input_md: "imas:hdf5?path=/home/ITER/schneim/public/git/pds-student/cases/inverse_convergence_105073/preprocess/in"
+    # 11 shape-editor keyframes (4.0, 7.0, 10.0, 18.0, 65.1, 100.0, 148.0, 170.0, 190.0,
+    # 203.0, 207.8 s; imas_11slices) interpolated by
+    # preprocessing/inverse_convergence/interpolate_keyframe_shapes.py onto this case's
+    # export times: the 39 DINA slices within loop.t_min/t_max (iteration 0) and the whole
+    # TORAX fixed_dt 0.3 grid from the first slice 11.1176 s to the last 207.7643 s, which
+    # the loop samples from iteration 1 on (closest TORAX slice to each DINA time).
+    shapes: "imas:hdf5?path=/home/ITER/schneim/public/git/pds-student/cases/inverse_convergence_105073_design/shapes_interp_imas"
     eq: {port: equilibrium_in}
     cp: {port: core_profiles_in}
 
@@ -39,24 +46,27 @@ state:
     - {ref: cp}
 
 targets:
+  # r0: the shapes entry has no vacuum_toroidal_field/r0 (unset), so it stays DINA's 6.2 m;
+  # b0 from the shapes entry (-5.3 T, same as DINA).
   equilibrium/vacuum_toroidal_field/r0:
     - {ref: input}
   equilibrium/vacuum_toroidal_field/b0:
-    - {ref: input}
+    - {ref: shapes}
+  # Not what TORAX runs on: the TORAX-MUSCLE3 actor forces I_p_source = geometry, i.e. Ip
+  # from the received equilibrium (torax_muscle3/torax_actor.py:620-621 @22038d1), so
+  # TORAX's core_profiles Ip follows equilibrium ip below whatever is set here.
   core_profiles/global_quantities/ip:
     - {ref: input}
   equilibrium/time_slice/global_quantities/ip:
-    - {ref: input}
+    - {ref: shapes, interp: linear}
   equilibrium/time_slice/global_quantities/psi_boundary:
-    - {ref: input}
+    - {ref: shapes, interp: linear}
+  # one interpolated outline per export time (516 points, closed): closest = exact shape.
   equilibrium/time_slice/boundary/outline/r:
-    - {ref: input}
+    - {ref: shapes}
   equilibrium/time_slice/boundary/outline/z:
-    - {ref: input}
+    - {ref: shapes}
   core_sources/source(1)/identifier/name:
     - {value: ec}
-  # From summary for now: DINA inputs have no ec_launchers, and pulse_schedule.ec has an unreliable time base
   core_sources/source(1)/global_quantities/power:
     - {ref: input, path: summary/heating_current_drive/power_ec/value, interp: linear}
-  pf_active/coil(*)/current/data:
-    - {ref: input}

@@ -96,32 +96,37 @@ for k = 1:numel(pf_active.coil)
     coils_current(k) = coil.current.data;
 end
 
-% gaps, written by the diagnostics actor; a gap not found keeps its last value
+% gaps, written by the diagnostics actor in every slice, NaN where not found
 GAP_LIST = evalin('base', 'GAP_LIST');
-gap = bd.gap;
 for k = GAP_LIST
-    if numel(gap) >= k && ~isempty(gap{k}.value) && abs(gap{k}.value) < 1e30
-        gaps(k) = gap{k}.value;
-    end
+    gaps(k) = bd.gap{k}.value;
 end
 
+% fluxes in the Ip > 0 frame shapeIp_CCS is designed for: psi * sign(Ip), sign of the reference set by the init
+ip_sign = evalin('base', 'ip_sign');
+
 % X-point: the saddle node of contour_tree; none in a limited plasma (last value kept). psi_xp is the mode-3
-% reference flux: at the saddle, or with xp_flux_at_ref = 1 at the reference X-point (below, on the mesh)
-flux_scale = evalin('base', 'flux_scale');
+% reference flux: at the saddle, or with xp_flux_at_ref = 1 at the reference X-point (below, on the mesh),
+% which then also stands in for the measured position when NICE finds no saddle
+mode3 = evalin('base', 'ShapeIpControlMode') == 3;
+xp_at_ref = mode3 && evalin('base', 'xp_flux_at_ref');
+xp_found = false;
 for k = 1:numel(ts.contour_tree.node)
     node = ts.contour_tree.node{k};
     if node.critical_type == 1
         r_xp = node.r;
         z_xp = node.z;
-        psi_xp = flux_scale * node.psi;
+        psi_xp = ip_sign * node.psi;
+        xp_found = true;
         break
     end
 end
-if isnan(r_xp) && evalin('base', 'ShapeIpControlMode') == 3
+if isnan(r_xp) && mode3 && ~xp_at_ref
     error('muscle_nice2control: mode 3 needs a diverted plasma, no X-point at t=%g', t_out);
 end
 
-% isoflux: psi at the control points, interpolated on NICE's mesh, and the boundary flux (mode 2: psi_boundary; else the fixed limiter point).
+% isoflux: psi at the control points, interpolated on NICE's mesh, and the boundary flux (mode 2: psi_boundary, or psi at
+% the limiter point with the setting limiter; else the fixed limiter point).
 % The mesh is the same at every step, so the interpolant is built once.
 if numel(ts.ggd) >= 1 && numel(ts.ggd{1}.psi) >= 1 && ~isempty(ts.ggd{1}.psi{1}.values)
     g = ts.ggd{1};
@@ -133,17 +138,32 @@ if numel(ts.ggd) >= 1 && numel(ts.ggd{1}.psi) >= 1 && ~isempty(ts.ggd{1}.psi{1}.
     end
     R_pts = evalin('base', 'RfluxCTRpts');
     Z_pts = evalin('base', 'ZfluxCTRpts');
-    flux_contr(1:numel(R_pts)) = flux_scale * F_flux(R_pts(:), Z_pts(:));
-    if evalin('base', 'xp_flux_at_ref') && evalin('base', 'ShapeIpControlMode') == 3
-        t_sim = t_out - evalin('base', 't_start');
-        t_ref = evalin('base', 't_ref');
-        psi_xp = flux_scale * F_flux(interp1(t_ref, evalin('base', 'rxp_ref'), t_sim), interp1(t_ref, evalin('base', 'zxp_ref'), t_sim));
+    flux_contr(1:numel(R_pts)) = ip_sign * F_flux(R_pts(:), Z_pts(:));
+    if xp_at_ref
+        % reference X-point at this time, interpolated as the From Workspace blocks Rxp_ref/Zxp_ref do
+        % (linear, extrapolated past the last slice; constant with a single slice)
+        [t_u, iu] = unique(evalin('base', 't_ref'));
+        rz_ref = [reshape(evalin('base', 'rxp_ref'), [], 1), reshape(evalin('base', 'zxp_ref'), [], 1)];
+        rz_ref = rz_ref(iu, :);
+        if numel(t_u) > 1
+            rz = interp1(t_u, rz_ref, t_out - evalin('base', 't_start'), 'linear', 'extrap');
+        else
+            rz = rz_ref(1, :);
+        end
+        psi_xp = ip_sign * F_flux(rz(1), rz(2));
+        if ~xp_found        % no saddle in this step: the X-point position rows see the reference (zero error)
+            r_xp = rz(1);
+            z_xp = rz(2);
+        end
     end
-    if evalin('base', 'ShapeIpControlMode') == 2
-        PsiLimiter = flux_scale * ts.global_quantities.psi_boundary;
+    if evalin('base', 'ShapeIpControlMode') == 2 && ~evalin('base', 'lim_point')
+        PsiLimiter = ip_sign * ts.global_quantities.psi_boundary;
     else
-        PsiLimiter = flux_scale * F_flux(evalin('base', 'R_lim'), evalin('base', 'Z_lim'));
+        PsiLimiter = ip_sign * F_flux(evalin('base', 'R_lim'), evalin('base', 'Z_lim'));
     end
+end
+if xp_at_ref && isnan(psi_xp)
+    error('muscle_nice2control: xp_flux_at_ref needs the flux map of NICE (ggd), missing at t=%g', t_out);
 end
 
 f = fopen(fullfile(getenv('RUN_DIR'), 'isoflux_log.csv'), 'a');

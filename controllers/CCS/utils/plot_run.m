@@ -1,14 +1,22 @@
-% Closed-loop runs of the CCS controller: plasma current and position, gaps, coil currents,
-% KCURR error and power-supply voltages. Several runs are overlaid, one colour per run; the
-% poloidal section is that of the first run. Measured values come from the plant (out_nice),
-% references and what the controller saw from simulink_log.csv. Set run_dir and run  plot_run
+%% plot_run: closed-loop runs of the CCS controller against NICE, several runs overlaid (one colour per run).
+% Figures: plasma (Ip, R, Z), vertical stabilisation, gaps (poloidal section of the first run and traces),
+% isoflux (modes 2 and 3), coil currents with the KCURR reference, KCURR error, supply voltages.
+% Measurements come from the plant (out_nice); references, commands and errors from the controller log
+% (simulink_log.csv). Set run_dir and run plot_run.
+%
+% Signs: everything is shown in the IMAS frame of NICE (Ip < 0 for 105073).
+% - The controller works in the frame with Ip > 0: its log has currents, Ip and voltage commands times ip_sign
+%   and psi times the factor of isoflux_refs.mat. controller_frame and to_imas_frame (end of the file) undo
+%   both. Runs older than the ip_sign frame logged NICE's current signs: their current factor is 1.
+% - Voltages are the ones NICE applies, so that a positive voltage drives a positive current: with
+%   nice_signs = 1, the opposite of the ones sent (out_controller, Output_total; controller_output_preprocess.m).
 
 close all
 clc
 clear
 
-run_dir = {'/home/ITER/centong/Desktop/PDSs/IMAS-PDS-torax/cases/runs/evolutive_controller_105073_20261110_210958',
-    '/home/ITER/centong/Desktop/PDSs/IMAS-PDS-torax/cases/runs/evolutive_controller_105073_20261113_100036'};
+run_dir = {'/home/ITER/centong/Desktop/PDSs/IMAS-PDS-torax/cases/runs/evolutive_controller_105073_20261124_084943'
+           '/home/ITER/centong/Desktop/PDSs/IMAS-PDS-torax/cases/runs/evolutive_controller_105073_20261124_103707'};
 
 t_section = [];                    % time of the poloidal section [s], [] = last slice of the first run
 GAP_LIST  = [3 8 15 21 25 48];     % as in muscle_controller_NICE_IMAS_iter_init.m: gaps_1..6 of the csv
@@ -19,32 +27,41 @@ eq_signals = {
     'r_cc',  [ts 'global_quantities&current_centre&r']
     'z_cc',  [ts 'global_quantities&current_centre&z']
     'psi_b', [ts 'boundary&psi']
+    'btype', [ts 'boundary&type']                    % 0 limited, 1 with an X-point
 };
 pfa_signals = {
     'coil_current', '/pf_active/coil[]&current&data'
     'coil_names',   '/pf_active/coil[]&name'
 };
 
-% read every run
+% ===== Read every run, the controller log taken to the IMAS frame =====
 run_dirs = cellstr(run_dir);
+runs = cell(1, numel(run_dirs));
 for i = 1:numel(run_dirs)
-    rd = strip(run_dirs{i}, 'right', '/');
-    [runs_dir, run_name] = fileparts(rd);
+    r = struct();
+    r.run_dir = strip(run_dirs{i}, 'right', '/');
+    [runs_dir, run_name] = fileparts(r.run_dir);
     case_name = regexprep(run_name, '_\d{8}_\d{6}.*$', '');
-    R(i).case_dir = fullfile(fileparts(runs_dir), case_name);
-    R(i).label = strrep(erase(run_name, [case_name '_']), '_', '\_');
-    R(i).csv  = read_csv_signals(fullfile(rd, 'simulink_log.csv'));
-    plant_dir = first_folder(rd, {'out_nice', 'out_plant'});
-    R(i).eq_file = fullfile(plant_dir, 'equilibrium.h5');
-    R(i).eq   = read_h5_signals(R(i).eq_file, '/equilibrium/time', eq_signals);
-    R(i).pfa  = read_h5_signals(fullfile(plant_dir, 'pf_active.h5'), '/pf_active/time', pfa_signals);
-    R(i).ctrl = read_h5_signals(fullfile(rd, 'out_controller', 'pf_active.h5'), '/pf_active/time', ...
+    r.case_dir = fullfile(fileparts(runs_dir), case_name);
+    r.label = strrep(erase(run_name, [case_name '_']), '_', '\_');
+    r.frame = controller_frame(r.run_dir);
+    r.csv = to_imas_frame(read_csv_signals(fullfile(r.run_dir, 'simulink_log.csv')), r.frame);
+    plant_dir = first_folder(r.run_dir, {'out_nice', 'out_plant'});
+    r.eq_file = fullfile(plant_dir, 'equilibrium.h5');
+    r.eq  = read_h5_signals(r.eq_file, '/equilibrium/time', eq_signals);
+    r.pfa = read_h5_signals(fullfile(plant_dir, 'pf_active.h5'), '/pf_active/time', pfa_signals);
+    r.ctrl = read_h5_signals(fullfile(r.run_dir, 'out_controller', 'pf_active.h5'), '/pf_active/time', ...
         {'supply_voltage', '/pf_active/supply[]&voltage&data'});        % voltages sent by the controller
-    if abs(R(i).csv.time(end) - R(i).pfa.time(end)) > 0.01
+    r.ctrl.supply_voltage = r.frame.voltage * r.ctrl.supply_voltage;     % the ones NICE applies
+    fprintf('%s: controller log to the IMAS frame: currents x%g, fluxes x%g; sent voltages x%g\n', ...
+        run_name, r.frame.current, r.frame.flux, r.frame.voltage);
+    if abs(r.csv.time(end) - r.pfa.time(end)) > 0.01
         warning('%s: simulink_log.csv ends at t = %.3f s but the run at %.3f s: it is from another run', ...
-            run_name, R(i).csv.time(end), R(i).pfa.time(end));
+            run_name, r.csv.time(end), r.pfa.time(end));
     end
+    runs{i} = r;
 end
+R = [runs{:}];
 colors = lines(numel(R));
 t_lim = [min(arrayfun(@(r) r.csv.time(1), R)), max(arrayfun(@(r) r.csv.time(end), R))];
 
@@ -54,14 +71,15 @@ circ_names = {'CS3U','CS2U','CS1','CS2L','CS3L','PF1','PF2','PF3','PF4','PF5','P
 % the 14 coils of pf_active and the KCURR circuit of each (0 = none)
 coil_names = {'CS3U','CS2U','CS1U','CS1L','CS2L','CS3L','PF1','PF2','PF3','PF4','PF5','PF6','VS3U','VS3L'};
 coil_circ  = [1 2 3 3 4 5 6 7 8 9 10 11 0 0];
-% the 14 power supplies (pf_active.supply of out_controller) and their voltage limits
+% the 14 power supplies (pf_active.supply of out_controller, columns of Output_total) and their voltage limits
 supply_names = {'CS3U','CS2U','CS1U','CS1L','CS2L','CS3L','PF1','PF2','PF3','PF4','PF5','VS1','PF6','VS3'};
 vlim_supply  = [2100 2100 2100 2100 2100 2100 2100 3150 3150 3150 3150 6300 2100 2400];
+coil = @(s, name) s.coil_current(:, strcmp(cellstr(string(s.coil_names)), name));
 
 % ===== Plasma: Ip and current centre of the plant (solid), controller references (dashed) =====
 figure('Name', 'Plasma');
-tiledlayout(4, 1, 'TileSpacing', 'compact');
-ax = [nexttile, nexttile, nexttile, nexttile];
+tiledlayout(3, 1, 'TileSpacing', 'compact');
+ax = [nexttile, nexttile, nexttile];
 hold(ax, 'on');
 h_run = gobjects(1, numel(R));
 for i = 1:numel(R)
@@ -70,18 +88,45 @@ for i = 1:numel(R)
     h_run(i) = plot(ax(1), e.time, per_time(e.ip, e.time) / 1e6, 'Color', colors(i,:));
     plot(ax(1), c.time, c.Ip_ref / 1e6, '--', 'Color', colors(i,:));
     if isfield(e, 'z_cc')
-        plot(ax(2), e.time, 1e3 * per_time(e.z_cc, e.time), 'Color', colors(i,:));
-        plot(ax(3), e.time, per_time(e.r_cc, e.time), 'Color', colors(i,:));
+        plot(ax(2), e.time, per_time(e.r_cc, e.time), 'Color', colors(i,:));
+        plot(ax(3), e.time, 1e3 * per_time(e.z_cc, e.time), 'Color', colors(i,:));
     end
-    plot(ax(2), c.time, 1e3 * c.Z_ref, '--', 'Color', colors(i,:));
-    plot(ax(3), c.time, c.R_ref, '--', 'Color', colors(i,:));
-    plot(ax(4), c.time, c.Zdot, 'Color', colors(i,:));
+    plot(ax(2), c.time, c.R_ref, '--', 'Color', colors(i,:));
+    plot(ax(3), c.time, 1e3 * c.Z_ref, '--', 'Color', colors(i,:));
 end
 xlim(ax, t_lim); grid(ax, 'on'); linkaxes(ax, 'x');
 title(ax(1), 'I_p: plant solid, reference dashed'); ylabel(ax(1), 'I_p [MA]');
-title(ax(2), 'Z of the current centre');            ylabel(ax(2), 'Z [mm]');
-title(ax(3), 'R of the current centre');            ylabel(ax(3), 'R [m]');
-title(ax(4), 'Zdot seen by VS');                    ylabel(ax(4), 'dZ/dt [m/s]');
+title(ax(2), 'R of the current centre');            ylabel(ax(2), 'R [m]');
+title(ax(3), 'Z of the current centre');            ylabel(ax(3), 'Z [mm]');
+xlabel(ax(3), 't [s]');
+lg = legend(ax(1), h_run, {R.label});
+lg.Layout.Tile = 'east';
+
+% ===== Vertical stabilisation: Zdot seen by VS, VS3 current, VS3 and VS1 voltages =====
+% I_VS3 = (I_VS3L - I_VS3U)/2 is the current of the VS3 supply in the IMAS frame, driven up by a positive VS3
+% voltage. Voltages: applied by NICE (solid), VS module command (dashed, before the power supply model).
+figure('Name', 'Vertical stabilisation');
+tiledlayout(4, 1, 'TileSpacing', 'compact');
+ax = [nexttile, nexttile, nexttile, nexttile];
+hold(ax, 'on');
+for i = 1:numel(R)
+    c = R(i).csv;
+    p = R(i).pfa;
+    v = R(i).ctrl;
+    h_run(i) = plot(ax(1), c.time, 1e3 * c.Zdot, 'Color', colors(i,:));
+    plot(ax(2), p.time, (coil(p, 'VS3L') - coil(p, 'VS3U')) / 2e3, 'Color', colors(i,:));
+    plot(ax(3), v.time, v.supply_voltage(:, strcmp(supply_names, 'VS3')) / 1e3, 'Color', colors(i,:));
+    plot(ax(4), v.time, v.supply_voltage(:, strcmp(supply_names, 'VS1')) / 1e3, 'Color', colors(i,:));
+    if isfield(c, 'VS_VS3_cmd')
+        plot(ax(3), c.time, c.VS_VS3_cmd / 1e3, '--', 'Color', colors(i,:));
+        plot(ax(4), c.time, c.VS_VS1_cmd / 1e3, '--', 'Color', colors(i,:));
+    end
+end
+xlim(ax, t_lim); grid(ax, 'on'); linkaxes(ax, 'x');
+title(ax(1), 'Zdot seen by VS');                                 ylabel(ax(1), 'dZ/dt [mm/s]');
+title(ax(2), 'VS3 current (I_{VS3L} - I_{VS3U})/2');             ylabel(ax(2), 'I [kA]');
+title(ax(3), 'VS3 voltage: applied solid, VS command dashed');   ylabel(ax(3), 'V [kV]');
+title(ax(4), 'VS1 voltage: applied solid, VS command dashed');   ylabel(ax(4), 'V [kV]');
 xlabel(ax(4), 't [s]');
 lg = legend(ax(1), h_run, {R.label});
 lg.Layout.Tile = 'east';
@@ -216,9 +261,79 @@ else
     xlabel(ax_g(end), 't [s]');
 end
 
+% ===== Isoflux: what shapeIp_CCS saw, flux at each control point minus the reference flux =====
+% Mode 2 drives FluxContr - FluxLimiterPoint to dPsi_ref = 0, mode 3 FluxContr - FluxXp (and Rxp, Zxp
+% to their references: last two panels, runs in mode 3 only; FluxXp is NaN while limited).
+% From simulink_log.csv (flux_ctrl_1..8, flux_lim, flux_xp, in the IMAS frame); mode and points from the
+% run's settings (magnetic_controller.shape_control, isoflux_r/z). Runs without them are left out.
+% Dotted: the X-point appears.
+for i = 1:numel(R)
+    cfg = fullfile(R(i).run_dir, 'configuration.ymmsl');
+    R(i).mode  = ymmsl_setting(cfg, 'magnetic_controller.shape_control');
+    R(i).iso_r = ymmsl_setting(cfg, 'magnetic_controller.isoflux_r');
+    R(i).iso_z = ymmsl_setting(cfg, 'magnetic_controller.isoflux_z');
+    R(i).iso_e = [];
+    c = R(i).csv;
+    if isfield(c, 'flux_ctrl') && isfield(c, 'flux_lim') && isfield(c, 'flux_xp') && ~isempty(R(i).iso_r)
+        n = min(numel(R(i).iso_r), size(c.flux_ctrl, 2));             % 6 points in mode 2, 8 in mode 3
+        if isequal(R(i).mode, 3)
+            R(i).iso_e = c.flux_ctrl(:, 1:n) - c.flux_xp;             % time x points
+        else
+            R(i).iso_e = c.flux_ctrl(:, 1:n) - c.flux_lim;
+        end
+    end
+end
+
+has_iso = arrayfun(@(r) ~isempty(r.iso_e), R);
+if ~any(has_iso)
+    fprintf('\nNo flux_ctrl in simulink_log.csv or no isoflux points in the settings: no isoflux figure\n');
+else
+    n_pts = max(arrayfun(@(r) size(r.iso_e, 2), R(has_iso)));
+    in_xp = has_iso & arrayfun(@(r) isequal(r.mode, 3), R);           % runs in mode 3
+    figure('Name', 'Isoflux', 'Units', 'normalized', 'Position', [0.1 0.1 0.7 0.75]);
+    tl = tiledlayout('flow', 'TileSpacing', 'compact');
+    title(tl, {'seen by shapeIp\_CCS: flux at each point minus the reference flux, driven to 0', ...
+               'reference: limiter point in mode 2, X-point in mode 3'});
+    h_iso = gobjects(1, numel(R));
+    for p = 1:n_pts
+        i1 = find(has_iso & arrayfun(@(r) size(r.iso_e, 2) >= p, R), 1);   % a run with this point
+        ax = nexttile;
+        hold(ax, 'on');  grid(ax, 'on');
+        for i = find(has_iso)
+            if p <= size(R(i).iso_e, 2)
+                h_iso(i) = plot(ax, R(i).csv.time, R(i).iso_e(:, p), 'Color', colors(i,:));
+            end
+            if isfield(R(i).eq, 'btype') && R(i).eq.btype(1) == 0 && any(R(i).eq.btype == 1)
+                xline(ax, R(i).eq.time(find(R(i).eq.btype == 1, 1)), ':', 'Color', colors(i,:));
+            end
+        end
+        yline(ax, 0, 'k');
+        xlim(ax, t_lim);
+        title(ax, sprintf('P%d (%.2f, %.2f) m', p, R(i1).iso_r(p), R(i1).iso_z(p)));
+        ylabel(ax, '\Delta\psi [Wb]');
+        xlabel(ax, 't [s]');
+    end
+    if any(in_xp)
+        for v = {'rxp', 'zxp'}                                        % X-point position, mode 3
+            ax = nexttile;
+            hold(ax, 'on');  grid(ax, 'on');
+            for i = find(in_xp)
+                plot(ax, R(i).csv.time, R(i).csv.(v{1}), 'Color', colors(i,:));
+                plot(ax, R(i).csv.time, R(i).csv.([v{1} '_ref']), '--', 'Color', colors(i,:));
+            end
+            xlim(ax, t_lim);
+            title(ax, sprintf('%s, reference dashed', v{1}));
+            ylabel(ax, [v{1} ' [m]']);
+            xlabel(ax, 't [s]');
+        end
+    end
+    labels = arrayfun(@(r) sprintf('%s, mode %s', r.label, num2str(r.mode)), R(has_iso), 'UniformOutput', false);
+    lg = legend(h_iso(has_iso), labels);
+    lg.Layout.Tile = 'east';
+end
+
 % ===== Coil currents of the plant (solid) and the reference KCURR tracks (dashed) =====
 % CS1U and CS1L share the CS1 reference, VS3U and VS3L have none; the reference moves with the Ip control
-coil = @(s, name) s.coil_current(:, strcmp(cellstr(string(s.coil_names)), name));
 figure('Name', 'Coil currents');
 tiledlayout(4, 4, 'TileSpacing', 'compact');
 h_ref = gobjects(1, numel(R));
@@ -241,7 +356,7 @@ for k = 1:numel(coil_names)
 end
 xlabel('t [s]');
 
-% ===== KCURR control error of each circuit =====
+% ===== KCURR control error of each circuit (reference - plant) =====
 figure('Name', 'KCURR error');
 tiledlayout(3, 4, 'TileSpacing', 'compact');
 for k = 1:numel(circ_names)
@@ -259,7 +374,7 @@ for k = 1:numel(circ_names)
 end
 xlabel('t [s]');
 
-% ===== Power-supply voltages sent by the controller, with their limits =====
+% ===== Power-supply voltages applied by NICE, with their limits =====
 figure('Name', 'Supply voltages');
 tiledlayout(4, 4, 'TileSpacing', 'compact');
 for k = 1:numel(supply_names)
@@ -279,6 +394,45 @@ end
 xlabel('t [s]');
 
 % ===== Local functions (must stay at the end of the script) =====
+
+function f = controller_frame(run_dir)
+    % Factors taking the controller log of a run to the IMAS frame of NICE:
+    % - current: currents, Ip and voltage commands, logged times ip_sign (isoflux_refs.mat); 1 in older runs,
+    %   whose controller saw NICE's current signs;
+    % - flux: fluxes, logged times ip_sign, or times flux_scale in older runs;
+    % - voltage: the sent voltages -> the applied ones, -1 with nice_signs = 1 (its default).
+    f = struct('current', 1, 'flux', 1, 'voltage', 1);
+    file = fullfile(run_dir, 'isoflux_refs.mat');
+    if isfile(file)
+        s = load(file);
+        if isfield(s, 'ip_sign')
+            f.current = s.ip_sign;
+            f.flux = s.ip_sign;
+        elseif isfield(s, 'flux_scale')
+            f.flux = 1 / s.flux_scale;
+        end
+    else
+        warning('%s: no isoflux_refs.mat, the controller log is taken as already in the IMAS frame', run_dir);
+    end
+    nice_signs = ymmsl_setting(fullfile(run_dir, 'configuration.ymmsl'), 'magnetic_controller.nice_signs');
+    if isempty(nice_signs) || nice_signs == 1
+        f.voltage = -1;
+    end
+end
+
+function c = to_imas_frame(c, f)
+    % The signals of simulink_log.csv in the IMAS frame (controller_frame). Positions, gaps, Zdot and the PSC
+    % flags are the same in both frames; Output_total holds the sent voltages.
+    for n = {'KCURR_CSPF_ctrl_e', 'KCURR_Ip_ctrl_e', 'KCURR_residual_ctrl_e', 'KCURR_actual_ref', ...
+             'RZIp_CSPF_curr_cmd', 'RZIp_VS1_cmd', 'VS_VS1_cmd', 'VS_VS3_cmd', 'Shape_CSPF_curr_cmd', ...
+             'Shape_VS_decoupling', 'CSPF_curr_ref', 'Ip_ref', 'ip'}
+        if isfield(c, n{1}), c.(n{1}) = f.current * c.(n{1}); end
+    end
+    for n = {'flux_ctrl', 'flux_lim', 'flux_xp'}
+        if isfield(c, n{1}), c.(n{1}) = f.flux * c.(n{1}); end
+    end
+    if isfield(c, 'Output_total'), c.Output_total = f.voltage * c.Output_total; end
+end
 
 function data = read_h5_signals(file, time_path, signals)
     % Reads a list of signals from an IMAS HDF5 file into a struct.
@@ -349,6 +503,18 @@ function x = clean_imas(x, nt)
         x = x(:);                  % always a column vector
     elseif size(x, 2) == nt && size(x, 1) ~= nt
         x = x.';                   % MATLAB reads HDF5 with dimensions reversed
+    end
+end
+
+function v = ymmsl_setting(file, name)
+    % Numbers of a setting in a run's configuration.ymmsl, [] if absent: a value, a list [a, b]
+    % or a list written one "- a" per line.
+    v = [];
+    if ~isfile(file), return, end
+    tok = regexp(fileread(file), ['\n\s*' regexptranslate('escape', name) ':([^\n]*)((?:\n\s+- [^\n]*)*)'], ...
+                 'tokens', 'once');
+    if ~isempty(tok)
+        v = str2double(regexp([regexprep(tok{1}, '#.*', '') tok{2}], '[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?', 'match'));
     end
 end
 

@@ -8,4 +8,5 @@ total_cmd = [cspf(1:11); vs1out; cspf(12); vs3out];
 if evalin('base','nice_signs')
     total_cmd = -total_cmd;     % NICE evo_rd's voltage sign convention
 end
+total_cmd = evalin('base','ip_sign') * total_cmd;
 end

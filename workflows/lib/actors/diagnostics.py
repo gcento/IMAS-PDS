@@ -1,7 +1,7 @@
 """
 MUSCLE3 actor between NICE and the magnetic controller. It adds three diagnostics to every
 equilibrium it forwards:
-- the plasma-wall gaps along the gap lines
+- the plasma-wall gaps along the gap lines, every gap in every slice, NaN where not found
   (time_slice[:].boundary.gap);
 - the vertical velocity of the current centre, by backward difference
   (time_slice[:].global_quantities.current_centre.velocity_z);
@@ -27,6 +27,8 @@ logger = logging.getLogger()
 GAP_FILE = Path(__file__).with_name("gaps.json")
 GAP_LENGTH = 2.0     # [m] searched along each line, longer than any gap
 N_SAMPLES = 1001     # points per segment to search on to find gap value
+OUTLINE_WINDOW = (-0.1, 3.0)   # [m] along each line, where the outline crossing is searched from behind the wall point, so a gap can be negative
+Z_DIVERTOR = -3.2    # [m] gaps whose wall point is lower are divertor gaps (GAP21-30, GAP59-62)
 
 def on_mesh(ts, field: str) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     """r, z of NICE's mesh nodes and `field` (psi, j_phi) on them, None if the slice has no mesh data."""
@@ -70,11 +72,43 @@ class GapLines:
         self.r_wall = np.array([g["r"] for g in gaps])  # start of each line, on the wall [m]
         self.z_wall = np.array([g["z"] for g in gaps])
         self.theta = np.radians([g["theta_deg"] for g in gaps])  # counter-clockwise from +R
+        self.divertor = self.z_wall < Z_DIVERTOR
         self.distance = np.linspace(0.0, GAP_LENGTH, N_SAMPLES)
         self.r_samples = self.r_wall[:, None] + np.cos(self.theta)[:, None] * self.distance
         self.z_samples = self.z_wall[:, None] + np.sin(self.theta)[:, None] * self.distance
         self.mesh = None
         self.triangulation = None
+
+    def find(self, ts, mesh, psi_b: float) -> np.ndarray:
+        """Gaps [m] of one slice, NaN where not found. """
+        found = np.full(len(self.names), np.nan)
+        r_out = np.asarray(ts.boundary.outline.r, dtype=float)
+        z_out = np.asarray(ts.boundary.outline.z, dtype=float)
+        if len(r_out) >= 3 and len(r_out) == len(z_out) and np.all(np.abs(np.r_[r_out, z_out]) < 1e30):
+            main = ~self.divertor
+            found[main] = self.outline_crossings(r_out, z_out)[main]
+        if mesh is not None and abs(psi_b) < 1e30:   # NaN and empty (-9e40) fail this test
+            r, z, psi = mesh
+            search = self.divertor | np.isnan(found)
+            found[search] = self.gaps(r, z, psi - psi_b)[search]
+        return found
+
+    def outline_crossings(self, r_out: np.ndarray, z_out: np.ndarray) -> np.ndarray:
+        """Signed distance [m] from the wall point to the first crossing of the closed outline
+        along each line, within OUTLINE_WINDOW, NaN where it is not crossed."""
+        d_r = np.roll(r_out, -1) - r_out            
+        d_z = np.roll(z_out, -1) - z_out
+        u_r = np.cos(self.theta)[:, None]            # line directions
+        u_z = np.sin(self.theta)[:, None]
+        w_r = r_out - self.r_wall[:, None]            # wall point to segment start, lines x segments
+        w_z = z_out - self.z_wall[:, None]
+        den = u_r * d_z - u_z * d_r                   # 0 for a segment parallel to the line or empty
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t = (w_r * d_z - w_z * d_r) / den         # along the line
+            s = (w_r * u_z - w_z * u_r) / den         # along the segment, 0 to 1 on it
+        hit = (den != 0) & (s >= 0) & (s <= 1) & (t >= OUTLINE_WINDOW[0]) & (t <= OUTLINE_WINDOW[1])
+        first = np.where(hit, t, np.inf).min(axis=1)
+        return np.where(np.isfinite(first), first, np.nan)
 
     def gaps(self, r: np.ndarray, z: np.ndarray, flux: np.ndarray) -> np.ndarray:
         """Distance [m] from the wall to the separatrix along each line, NaN where it is not crossed.
@@ -96,16 +130,14 @@ class GapLines:
         return gaps
 
     def write(self, ts, gaps: np.ndarray) -> None:
-        """Gaps into ts.boundary.gap, value left empty where not found.
-        The DD angle is clockwise from grad R, theta counter-clockwise."""
+        """Gaps into ts.boundary.gap"""
         ts.boundary.gap.resize(len(gaps))
         for k, gap in enumerate(ts.boundary.gap):
             gap.name = f"GAP{k + 1:02d}"
             gap.r = self.r_wall[k]
             gap.z = self.z_wall[k]
             gap.angle = -self.theta[k]
-            if np.isfinite(gaps[k]):
-                gap.value = gaps[k]
+            gap.value = gaps[k]
 
 
 class CurrentCentre:
@@ -164,9 +196,9 @@ def add_diagnostics(
     for i, ts in enumerate(equilibrium.time_slice):
         mesh = on_mesh(ts, "psi")
         psi_b = float(ts.boundary.psi)
+        gap_lines.write(ts, gap_lines.find(ts, mesh, psi_b))
         if mesh is not None and abs(psi_b) < 1e30:   # NaN and empty (-9e40) fail this test
             r, z, psi = mesh
-            gap_lines.write(ts, gap_lines.gaps(r, z, psi - psi_b))
             fit_quadratic_xpoint(ts, r, z, psi)
 
         rejected = i < len(output_flag) and output_flag[i] < 0
